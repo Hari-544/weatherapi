@@ -96,7 +96,9 @@ class SocialStreamSimulator:
                 "longitude": coords["longitude"] + random.uniform(-0.08, 0.08),
                 "metadata": {"likes": random.randint(5, 2000), "retweets": random.randint(1, 500),
                              "simulated": True},
-                "reported_at": now - timedelta(minutes=random.randint(0, 90)),
+                "reported_at": now - timedelta(days=random.randint(0, 14),
+                                               hours=random.randint(0, 23),
+                                               minutes=random.randint(0, 59)),
             })
         return posts
 
