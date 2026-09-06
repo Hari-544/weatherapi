@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -12,6 +12,7 @@ from app.api.auth import get_current_user, get_current_admin
 from app.ml.categorizer import Categorizer
 from app.ml.fake_detector import FakeDetector
 from app.ml.deduplicator import Deduplicator
+from app.collectors.citizen_report import citizen_report_handler
 from pydantic import BaseModel, Field
 
 router = APIRouter()
@@ -76,6 +77,32 @@ class EventResponse(BaseModel):
     created_at: str
     updated_at: str
     reported_at: str
+
+
+@router.post("/citizen-report", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def submit_citizen_report(
+    title: str = Form(..., min_length=5, max_length=500),
+    description: str = Form(..., min_length=10),
+    city: Optional[str] = Form(None),
+    state: Optional[str] = Form(None),
+    latitude: Optional[float] = Form(None),
+    longitude: Optional[float] = Form(None),
+    files: List[UploadFile] = File(default=[]),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Submit a citizen observation, optionally with image/video evidence."""
+    return await citizen_report_handler.handle_report_with_files(
+        db=db,
+        title=title,
+        description=description,
+        files=files,
+        city=city,
+        state=state,
+        latitude=latitude,
+        longitude=longitude,
+        reported_by_id=current_user.id,
+    )
 
 
 @router.get("", response_model=dict)

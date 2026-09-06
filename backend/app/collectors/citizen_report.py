@@ -94,7 +94,7 @@ class CitizenReportHandler:
                     raise HTTPException(status_code=413, detail=f"File {file.filename} exceeds max size")
                 with open(dest, "wb") as f:
                     f.write(content)
-                saved_photos.append(str(dest))
+                saved_photos.append("/uploads/" + str(dest.relative_to(self.upload_dir)).replace("\\", "/"))
             elif ext in ALLOWED_VIDEO_EXTENSIONS:
                 dest = user_dir / "videos" / safe_filename
                 dest.parent.mkdir(parents=True, exist_ok=True)
@@ -103,7 +103,7 @@ class CitizenReportHandler:
                     raise HTTPException(status_code=413, detail=f"Video {file.filename} exceeds max size")
                 with open(dest, "wb") as f:
                     f.write(content)
-                saved_videos.append(str(dest))
+                saved_videos.append("/uploads/" + str(dest.relative_to(self.upload_dir)).replace("\\", "/"))
             else:
                 logger.warning(f"Unsupported file type: {file.filename}")
 

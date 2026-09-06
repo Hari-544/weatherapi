@@ -1,6 +1,6 @@
 # National Weather Big Data Analytics Platform
 
-A comprehensive real-time weather event tracking, verification, and analytics platform for India. This platform collects weather data from multiple sources including Twitter/X, news websites, public APIs (IMD, OpenWeather), and citizen reports, then applies ML-based analysis for fake detection, event categorization, and deduplication.
+A National Weather Big Data Analytics Platform for India. It centrally stores weather observations from #IMD/social posts, weather-news sites, public APIs, and citizen reports, then applies automated categorization, fake-report scoring, duplicate detection, and human verification.
 
 ## Architecture
 
@@ -34,7 +34,6 @@ national-weather-platform/
 - FastAPI (Python 3.11+)
 - SQLAlchemy 2.0 (async) + PostgreSQL
 - Alembic for migrations
-- Celery + Redis for async tasks
 - scikit-learn for ML models
 
 **Frontend:**
@@ -47,8 +46,6 @@ national-weather-platform/
 **Infrastructure:**
 - Docker + Docker Compose
 - PostgreSQL 16
-- Redis 7
-- Elasticsearch 8
 
 ## Quick Start
 
@@ -58,13 +55,12 @@ national-weather-platform/
 # Clone the repository
 cd national-weather-platform
 
-# Start all services
+# Build and start the complete application (PostgreSQL + FastAPI + React)
 cd docker
-docker-compose up -d
+docker compose up --build
 
-# The application will be available at:
-# Frontend: http://localhost:5173
-# Backend API: http://localhost:8000
+# The single application will be available at:
+# App and API: http://localhost:8000
 # API Docs: http://localhost:8000/docs
 ```
 
@@ -80,7 +76,8 @@ pip install -r requirements.txt
 
 # Copy and configure environment variables
 cp .env.example .env
-# Edit .env with your database credentials and API keys
+# Set OPENWEATHER_API_KEY and TWITTER_BEARER_TOKEN when live collection is required.
+# Without them, the Admin panel marks those sources as skipped; sample data remains opt-in.
 
 # Seed the database with sample data
 python ../scripts/seed_database.py
@@ -89,13 +86,17 @@ python ../scripts/seed_database.py
 uvicorn app.main:app --reload --port 8000
 ```
 
-#### Frontend
+#### Frontend (development server)
 
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
+
+The Vite development server at `http://localhost:5173` proxies every `/api` request to
+the FastAPI backend at `http://localhost:8000`. In Docker, FastAPI serves the compiled
+React application and API together on port `8000`.
 
 ### Database Seeding
 
@@ -106,6 +107,13 @@ python seed_database.py
 ```
 
 ## Features
+
+### Ingestion and verification workflow
+- Admin-triggered collection from configured Twitter/X, web-news, and OpenWeather sources
+- Explicit sample-data mode for demonstrations; sample records are not represented as live data
+- Authenticated citizen reports with optional photo/video evidence and location metadata
+- Central PostgreSQL event store with source, timestamp, city/state, coordinates, media references, and review status
+- Rule/ML-assisted event categorization, suspicious-report scoring, and duplicate linking before human review
 
 ### Data Collection
 - **Twitter/X Collector**: Monitors weather-related hashtags (#IMD, #Weather, #IndiaWeather, etc.)

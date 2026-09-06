@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,10 +14,6 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/weather_platform"
     DATABASE_URL_SYNC: str = "postgresql://postgres:postgres@localhost:5432/weather_platform"
-    REDIS_URL: str = "redis://localhost:6379/0"
-    MONGO_URL: str = "mongodb://localhost:27017"
-    ELASTICSEARCH_URL: str = "http://localhost:9200"
-
     # JWT
     JWT_SECRET_KEY: str = "super-secret-change-in-production-weather-platform-2024"
     JWT_ALGORITHM: str = "HS256"
@@ -33,12 +30,6 @@ class Settings(BaseSettings):
     # External APIs
     OPENWEATHER_API_KEY: str = ""
     TWITTER_BEARER_TOKEN: str = ""
-    TWITTER_API_KEY: str = ""
-    TWITTER_API_SECRET: str = ""
-    TWITTER_ACCESS_TOKEN: str = ""
-    TWITTER_ACCESS_SECRET: str = ""
-    REDDIT_CLIENT_ID: str = ""
-    REDDIT_CLIENT_SECRET: str = ""
 
     # File uploads
     UPLOAD_DIR: str = "./uploads"
@@ -48,6 +39,9 @@ class Settings(BaseSettings):
     FAKE_DETECTION_THRESHOLD: float = 0.7
     DUPLICATE_DISTANCE_KM: float = 10.0
     DUPLICATE_TIME_WINDOW_HOURS: int = 6
+
+    # The compiled React application. It is present in the single-container image.
+    FRONTEND_DIST_DIR: Path = Path(__file__).resolve().parents[3] / "frontend" / "dist"
 
 
 settings = Settings()

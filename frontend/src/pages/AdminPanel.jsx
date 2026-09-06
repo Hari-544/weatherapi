@@ -14,6 +14,8 @@ export default function AdminPanel() {
   const [pendingCount, setPendingCount] = useState(0);
   const [verifiedCount, setVerifiedCount] = useState(0);
   const [rejectedCount, setRejectedCount] = useState(0);
+  const [ingesting, setIngesting] = useState(false);
+  const [ingestionMessage, setIngestionMessage] = useState('');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -73,6 +75,23 @@ export default function AdminPanel() {
       }
     }
     fetchData();
+  };
+
+  const runIngestion = async (useSampleData = false) => {
+    setIngesting(true);
+    setIngestionMessage('Collecting selected weather sources…');
+    try {
+      const response = await api.post('/api/ingest/run', {
+        sources: ['social', 'web', 'public_api'],
+        use_sample_data: useSampleData,
+      });
+      setIngestionMessage(`Ingestion complete: ${response.data.total_stored} events stored.`);
+      await fetchData();
+    } catch (err) {
+      setIngestionMessage(err.response?.data?.detail || 'Ingestion failed. Check configured API credentials.');
+    } finally {
+      setIngesting(false);
+    }
   };
 
   const tabs = [
@@ -141,6 +160,24 @@ export default function AdminPanel() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="card border border-primary-500/20">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-white">Data Ingestion</h2>
+            <p className="mt-1 text-xs text-gray-400">Collect #IMD/social posts, weather news, and configured public API observations.</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => runIngestion(false)} disabled={ingesting} className="btn-primary inline-flex items-center gap-2 disabled:opacity-50">
+              <RefreshCw className={`w-4 h-4 ${ingesting ? 'animate-spin' : ''}`} /> Run live collection
+            </button>
+            <button onClick={() => runIngestion(true)} disabled={ingesting} className="btn-secondary disabled:opacity-50">
+              Load sample data
+            </button>
+          </div>
+        </div>
+        {ingestionMessage && <p className="mt-3 text-xs text-primary-300">{ingestionMessage}</p>}
       </div>
 
       <div className="flex gap-2 border-b border-dark-700/50 pb-0">

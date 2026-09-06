@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Plus, Send } from 'lucide-react';
 import EventTable from '../components/EventTable.jsx';
 import FilterPanel from '../components/FilterPanel.jsx';
 import { api } from '../services/api.js';
@@ -19,6 +19,9 @@ export default function Events() {
     end_date: '',
     search: '',
   });
+  const [showReportForm, setShowReportForm] = useState(false);
+  const [reportStatus, setReportStatus] = useState('');
+  const [submittingReport, setSubmittingReport] = useState(false);
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
@@ -86,6 +89,25 @@ export default function Events() {
     URL.revokeObjectURL(url);
   };
 
+  const submitCitizenReport = async (event) => {
+    event.preventDefault();
+    setSubmittingReport(true);
+    setReportStatus('');
+    try {
+      const formData = new FormData(event.currentTarget);
+      await api.post('/api/weather/citizen-report', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      event.currentTarget.reset();
+      setReportStatus('Report submitted. It is now pending AI and administrator verification.');
+      fetchEvents();
+    } catch (err) {
+      setReportStatus(err.response?.data?.detail || 'Unable to submit the report.');
+    } finally {
+      setSubmittingReport(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -95,10 +117,35 @@ export default function Events() {
             Browse and manage all collected weather events
           </p>
         </div>
-        <button onClick={handleExport} className="btn-secondary inline-flex items-center gap-2">
-          <Download className="w-4 h-4" /> Export CSV
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowReportForm(value => !value)} className="btn-primary inline-flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Report weather event
+          </button>
+          <button onClick={handleExport} className="btn-secondary inline-flex items-center gap-2">
+            <Download className="w-4 h-4" /> Export CSV
+          </button>
+        </div>
       </div>
+
+      {showReportForm && (
+        <form onSubmit={submitCitizenReport} className="card grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="md:col-span-2 flex items-center gap-2">
+            <Send className="w-4 h-4 text-primary-400" />
+            <h2 className="text-sm font-semibold text-white">Citizen weather report</h2>
+          </div>
+          <input required name="title" minLength="5" className="input" placeholder="What happened?" />
+          <input name="city" className="input" placeholder="City" />
+          <input name="state" className="input" placeholder="State" />
+          <input name="files" type="file" multiple accept="image/*,video/*" className="input" />
+          <textarea required name="description" minLength="10" className="input min-h-24 md:col-span-2" placeholder="Describe the weather event, impact, and any safety concern." />
+          <div className="md:col-span-2 flex items-center gap-3">
+            <button disabled={submittingReport} className="btn-primary disabled:opacity-50">
+              {submittingReport ? 'Submitting…' : 'Submit for verification'}
+            </button>
+            {reportStatus && <span className="text-xs text-primary-300">{reportStatus}</span>}
+          </div>
+        </form>
+      )}
 
       <FilterPanel filters={filters} onFilterChange={handleFilterChange} onReset={handleFilterReset} />
 
