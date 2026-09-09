@@ -2,6 +2,7 @@
 Hybrid Weather Event Categorizer
 ---------------------------------
 Classifies weather reports into:
+
     rainfall
     thunderstorm
     flooding
@@ -19,6 +20,7 @@ Designed for:
 - Citizen reports
 - English + common Hindi/Hinglish weather terms
 - Hashtags
+- Disaster/event severity detection
 """
 
 import re
@@ -29,10 +31,14 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# WEATHER PHRASES
+# WEATHER EVENT PATTERNS
 # ============================================================
 
 WEATHER_PATTERNS = {
+
+    # --------------------------------------------------------
+    # RAINFALL
+    # --------------------------------------------------------
     "rainfall": [
         # English
         "rain",
@@ -42,9 +48,15 @@ WEATHER_PATTERNS = {
         "heavy rain",
         "heavy rainfall",
         "light rain",
+        "light rainfall",
         "moderate rain",
+        "moderate rainfall",
         "continuous rain",
+        "continuous rainfall",
         "intense rain",
+        "intense rainfall",
+        "very heavy rain",
+        "very heavy rainfall",
         "downpour",
         "showers",
         "rain showers",
@@ -55,11 +67,8 @@ WEATHER_PATTERNS = {
         "rain warning",
         "rainfall recorded",
         "mm rainfall",
-        "waterlogging",
-        "water logged",
-        "waterlogged",
 
-        # Hinglish / common Indian usage
+        # Hinglish
         "baarish",
         "barish",
         "tez baarish",
@@ -70,6 +79,7 @@ WEATHER_PATTERNS = {
         "musaldhar barish",
         "lagatar baarish",
         "lagatar barish",
+        "tez barish",
 
         # Hindi
         "बारिश",
@@ -80,8 +90,13 @@ WEATHER_PATTERNS = {
         "लगातार बारिश",
         "वर्षा की संभावना",
         "भारी वर्षा",
+        "तेज वर्षा",
+        "मूसलाधार वर्षा",
     ],
 
+    # --------------------------------------------------------
+    # THUNDERSTORM
+    # --------------------------------------------------------
     "thunderstorm": [
         "thunderstorm",
         "thunder storm",
@@ -95,6 +110,7 @@ WEATHER_PATTERNS = {
         "storm lightning",
         "thunderstorm warning",
         "thunderstorm alert",
+        "severe thunderstorm",
 
         # Hindi / Hinglish
         "आंधी तूफान",
@@ -109,47 +125,114 @@ WEATHER_PATTERNS = {
         "bijli girne",
         "bijli chamak",
         "garaj",
+        "garaj chamak",
     ],
 
+    # --------------------------------------------------------
+    # FLOODING
+    # --------------------------------------------------------
     "flooding": [
+        # English
         "flood",
         "flooding",
         "flooded",
         "flash flood",
         "flash flooding",
+        "flash floods",
         "flood water",
         "floodwater",
+        "flood waters",
         "inundated",
         "inundation",
         "submerged",
+        "submergence",
         "overflow",
         "river overflow",
+        "river overflowing",
         "water level rising",
         "water level increased",
+        "rising water level",
         "roads flooded",
         "road flooded",
         "streets flooded",
+        "roads submerged",
+        "road submerged",
+        "streets submerged",
         "flood affected",
+        "flood affected area",
         "flood warning",
         "flood alert",
+        "flood emergency",
         "relief camp",
         "embankment breach",
+        "embankment breached",
         "dam overflow",
+        "dam breach",
+        "dam breached",
+        "river breached",
+        "urban flood",
+        "urban flooding",
+        "waterlogging",
+        "water logged",
+        "waterlogged",
+        "severe waterlogging",
+        "water entered homes",
+        "water entered houses",
+        "homes flooded",
+        "houses flooded",
+        "city submerged",
+        "village submerged",
+        "flood waters entered homes",
+        "floodwater entered homes",
 
-        # Hindi / Hinglish
+        # Hinglish
+        "baadh",
+        "baadh ka paani",
+        "baadh ki sthiti",
+        "baadh ka khatra",
+        "baadh prabhavit",
+        "baadhgrast",
+        "jalbharav",
+        "paani bhar gaya",
+        "sadak par paani",
+        "sadkein doob gayi",
+        "sadakein doob gayi",
+        "ghar mein paani",
+        "ghar me paani",
+        "nadi ufaan",
+        "nadi ufaan par",
+        "nadi ka paani badha",
+
+        # Hindi
         "बाढ़",
         "बाढ़ का पानी",
         "बाढ़ की स्थिति",
+        "बाढ़ का खतरा",
+        "बाढ़ प्रभावित",
+        "बाढ़ग्रस्त",
         "जलभराव",
+        "जलभराव की स्थिति",
+        "जलमग्न",
         "पानी भर गया",
+        "पानी भर गया है",
         "सड़क पर पानी",
+        "सड़कों पर पानी",
+        "सड़कें जलमग्न",
+        "सड़कें डूब गई",
+        "सड़कें डूब गईं",
+        "घर में पानी",
+        "घरों में पानी",
         "नदी का जलस्तर",
-        "baadh",
-        "baadh ka paani",
-        "jalbharav",
-        "paani bhar gaya",
+        "नदी उफान",
+        "नदी उफान पर",
+        "नदी का पानी बढ़ा",
+        "बाढ़ का खतरा",
+        "नदी में उफान",
     ],
 
+    # --------------------------------------------------------
+    # HEATWAVE
+    # --------------------------------------------------------
     "heatwave": [
         "heatwave",
         "heat wave",
@@ -186,6 +269,9 @@ WEATHER_PATTERNS = {
         "tez garmi",
     ],
 
+    # --------------------------------------------------------
+    # FOG
+    # --------------------------------------------------------
     "fog": [
         "fog",
         "foggy",
@@ -215,6 +301,9 @@ WEATHER_PATTERNS = {
         "kam drishyata",
     ],
 
+    # --------------------------------------------------------
+    # DUST STORM
+    # --------------------------------------------------------
     "dust_storm": [
         "dust storm",
         "duststorm",
@@ -239,10 +328,14 @@ WEATHER_PATTERNS = {
         "dhool ka toofan",
     ],
 
+    # --------------------------------------------------------
+    # STRONG WINDS
+    # --------------------------------------------------------
     "strong_winds": [
         # IMPORTANT:
         # Do NOT include generic "wind".
-        # "Wind: 2.06 m/s" is normal weather data.
+        # Normal OpenWeather wind measurements must remain "other".
+
         "strong wind",
         "strong winds",
         "high wind",
@@ -281,6 +374,9 @@ WEATHER_PATTERNS = {
         "andhi",
     ],
 
+    # --------------------------------------------------------
+    # CYCLONE
+    # --------------------------------------------------------
     "cyclone": [
         "cyclone",
         "cyclonic storm",
@@ -311,16 +407,23 @@ WEATHER_PATTERNS = {
 
 
 # ============================================================
-# SEVERITY KEYWORDS
+# SEVERITY PATTERNS
 # ============================================================
 
 SEVERITY_PATTERNS = {
+
+    # --------------------------------------------------------
+    # CRITICAL
+    # --------------------------------------------------------
     "critical": [
         "catastrophic",
         "devastating",
         "disaster",
         "massive flooding",
         "extreme flooding",
+        "catastrophic flooding",
+        "flash flood",
+        "flash flooding",
         "death",
         "deaths",
         "killed",
@@ -328,37 +431,84 @@ SEVERITY_PATTERNS = {
         "submerged completely",
         "evacuation order",
         "emergency",
+        "flood emergency",
         "red alert",
         "extremely severe",
         "severe cyclonic storm",
         "unprecedented",
         "historic disaster",
+        "dam breach",
+        "dam breached",
+        "embankment breach",
+        "embankment breached",
+        "river breached",
+        "severe flooding",
+        "critical flooding",
+
+        # Hindi
+        "बाढ़ आपातकाल",
+        "लाल चेतावनी",
+        "निकासी आदेश",
+        "निकासी",
+        "तबाही",
+        "भयंकर बाढ़",
+        "गंभीर बाढ़",
     ],
 
+    # --------------------------------------------------------
+    # HIGH
+    # --------------------------------------------------------
     "high": [
         "heavy rain",
         "heavy rainfall",
+        "very heavy rain",
+        "very heavy rainfall",
         "intense rain",
+        "intense rainfall",
         "flood",
         "flooding",
+        "flooded",
         "flash flood",
+        "inundated",
+        "inundation",
+        "submerged",
+        "waterlogging",
+        "severe waterlogging",
         "cyclone",
         "cyclonic storm",
         "storm surge",
         "landfall",
         "strong winds",
         "damaging winds",
+        "severe thunderstorm",
         "severe",
         "major",
         "dangerous",
         "warning",
-        "red alert",
+        "orange alert",
         "evacuation",
         "significant damage",
+        "river overflow",
+        "rising water level",
+
+        # Hindi / Hinglish
+        "भारी बारिश",
+        "मूसलाधार बारिश",
+        "तेज बारिश",
+        "बाढ़",
+        "जलमग्न",
+        "जलभराव",
+        "गंभीर",
+        "खतरा",
     ],
 
+    # --------------------------------------------------------
+    # MODERATE
+    # --------------------------------------------------------
     "moderate": [
         "moderate",
+        "moderate rain",
+        "moderate rainfall",
         "affected",
         "impact",
         "damage",
@@ -369,11 +519,16 @@ SEVERITY_PATTERNS = {
         "alert",
         "rain alert",
         "weather warning",
+        "yellow alert",
     ],
 
+    # --------------------------------------------------------
+    # LOW
+    # --------------------------------------------------------
     "low": [
         "light rain",
         "light rainfall",
+        "drizzle",
         "mild",
         "minor",
         "slight",
@@ -390,7 +545,7 @@ SEVERITY_PATTERNS = {
 
 
 # ============================================================
-# NON-EVENT / NORMAL WEATHER PHRASES
+# NORMAL / NON-EVENT WEATHER
 # ============================================================
 
 NORMAL_WEATHER_PATTERNS = [
@@ -414,12 +569,21 @@ NORMAL_WEATHER_PATTERNS = [
 ]
 
 
+# ============================================================
+# CATEGORIZER
+# ============================================================
+
 class Categorizer:
     """
     Hybrid rule-based weather event classifier.
 
     Returns:
         Tuple[event_type, confidence]
+
+    Example:
+        ("rainfall", 0.98)
+        ("flooding", 0.95)
+        (None, 0.0)
     """
 
     def __init__(self):
@@ -444,62 +608,82 @@ class Categorizer:
             return None, 0.0
 
         # ----------------------------------------------------
-        # 1. Explicit event detection
+        # 1. Calculate category scores
         # ----------------------------------------------------
 
         scores = {}
 
         for category, patterns in self.patterns.items():
-            score = self._category_score(text, patterns)
+
+            score = self._category_score(
+                text,
+                patterns
+            )
 
             if score > 0:
                 scores[category] = score
 
         # ----------------------------------------------------
-        # 2. No event detected
+        # 2. No weather event detected
         # ----------------------------------------------------
 
         if not scores:
             return None, 0.0
 
         # ----------------------------------------------------
-        # 3. Special handling for cyclone
+        # 3. Cyclone gets highest priority
         # ----------------------------------------------------
-        # Cyclone terminology is much more specific than
-        # generic storm/wind terminology.
 
         if self._contains_any(
             text,
             self.patterns["cyclone"]
         ):
-            cyclone_score = scores.get("cyclone", 0)
+
+            cyclone_score = scores.get(
+                "cyclone",
+                0
+            )
 
             if cyclone_score > 0:
+
                 confidence = min(
                     0.85 + cyclone_score * 0.05,
                     1.0
                 )
-                return "cyclone", round(confidence, 3)
+
+                return (
+                    "cyclone",
+                    round(confidence, 3)
+                )
 
         # ----------------------------------------------------
-        # 4. Flooding takes priority over rainfall
+        # 4. Flooding gets priority over rainfall
         # ----------------------------------------------------
+        #
         # Example:
         # "Heavy rain caused flooding"
         #
-        # The actual incident is flooding.
+        # Actual incident = flooding.
+        # ----------------------------------------------------
 
         if self._contains_any(
             text,
             self.patterns["flooding"]
         ):
-            flood_score = scores.get("flooding", 0)
+
+            flood_score = scores.get(
+                "flooding",
+                0
+            )
 
             confidence = self._score_to_confidence(
                 flood_score
             )
 
-            return "flooding", round(confidence, 3)
+            return (
+                "flooding",
+                round(confidence, 3)
+            )
 
         # ----------------------------------------------------
         # 5. Select highest scoring category
@@ -513,7 +697,7 @@ class Categorizer:
         best_score = scores[best_category]
 
         # ----------------------------------------------------
-        # 6. Resolve common conflicts
+        # 6. Resolve common category conflicts
         # ----------------------------------------------------
 
         best_category = self._resolve_conflicts(
@@ -523,11 +707,14 @@ class Categorizer:
         )
 
         confidence = self._score_to_confidence(
-            scores.get(best_category, best_score)
+            scores.get(
+                best_category,
+                best_score
+            )
         )
 
         # ----------------------------------------------------
-        # 7. Don't classify normal observations as events
+        # 7. Ignore normal observations
         # ----------------------------------------------------
 
         if self._is_normal_observation(
@@ -536,10 +723,13 @@ class Categorizer:
         ):
             return None, 0.0
 
-        return best_category, round(confidence, 3)
+        return (
+            best_category,
+            round(confidence, 3)
+        )
 
     # ========================================================
-    # SCORING
+    # CATEGORY SCORING
     # ========================================================
 
     def _category_score(
@@ -550,7 +740,6 @@ class Categorizer:
 
         score = 0.0
 
-        # Long / specific phrases receive higher weight.
         for pattern in patterns:
 
             pattern_lower = pattern.lower()
@@ -560,14 +749,24 @@ class Categorizer:
 
             words = pattern_lower.split()
 
-            if len(words) >= 3:
+            # More specific phrases get higher weight.
+            if len(words) >= 4:
+                score += 4.0
+
+            elif len(words) == 3:
                 score += 3.0
+
             elif len(words) == 2:
                 score += 2.0
+
             else:
                 score += 1.0
 
         return score
+
+    # ========================================================
+    # CONFIDENCE
+    # ========================================================
 
     def _score_to_confidence(
         self,
@@ -603,7 +802,7 @@ class Categorizer:
     ) -> str:
 
         # ----------------------------------------------------
-        # Flood > Rain
+        # Flooding > Rainfall
         # ----------------------------------------------------
 
         if (
@@ -613,7 +812,7 @@ class Categorizer:
             return "flooding"
 
         # ----------------------------------------------------
-        # Cyclone > Strong winds
+        # Cyclone > Strong Winds
         # ----------------------------------------------------
 
         if (
@@ -623,7 +822,7 @@ class Categorizer:
             return "cyclone"
 
         # ----------------------------------------------------
-        # Dust storm > Strong winds
+        # Dust Storm > Strong Winds
         # ----------------------------------------------------
 
         if (
@@ -633,7 +832,7 @@ class Categorizer:
             return "dust_storm"
 
         # ----------------------------------------------------
-        # Thunderstorm > Strong winds
+        # Thunderstorm > Strong Winds
         # ----------------------------------------------------
 
         if (
@@ -645,7 +844,7 @@ class Categorizer:
         return best_category
 
     # ========================================================
-    # NORMAL OBSERVATION DETECTION
+    # NORMAL WEATHER DETECTION
     # ========================================================
 
     def _is_normal_observation(
@@ -654,8 +853,11 @@ class Categorizer:
         category: str
     ) -> bool:
 
-        # Generic wind measurements should NOT become
-        # strong-wind events.
+        # ----------------------------------------------------
+        # Generic wind measurements are NOT strong-wind events.
+        # Example:
+        # "Wind speed: 2.06 m/s"
+        # ----------------------------------------------------
 
         if category == "strong_winds":
 
@@ -674,9 +876,11 @@ class Categorizer:
                     "gale",
                     "squall",
                     "wind warning",
+                    "high wind warning",
                     "तेज हवा",
                     "तेज हवाएं",
                     "जोरदार हवा",
+                    "जोरदार हवाएं",
                     "आंधी",
                     "tez hawa",
                     "tez hawayein",
@@ -688,7 +892,9 @@ class Categorizer:
             if not explicit_strong_wind:
                 return True
 
-        # Clear-sky OpenWeather observations are not events.
+        # ----------------------------------------------------
+        # Clear-sky observations are NOT rainfall events.
+        # ----------------------------------------------------
 
         if (
             category == "rainfall"
@@ -714,27 +920,74 @@ class Categorizer:
     # TEXT NORMALIZATION
     # ========================================================
 
-    def _normalize_text(self, text: str) -> str:
+    def _normalize_text(
+        self,
+        text: str
+    ) -> str:
 
-        text = text.lower()
+        text = text or ""
 
-        # Convert hashtags:
-        # #HeavyRain -> heavy rain
-        # #RainAlert -> rain alert
+        # ----------------------------------------------------
+        # Convert CamelCase hashtags BEFORE lowercase.
+        #
+        # #HeavyRain
+        #       ↓
+        # Heavy Rain
+        #
+        # #FlashFlood
+        #       ↓
+        # Flash Flood
+        #
+        # #RainAlert2026
+        #       ↓
+        # Rain Alert 2026
+        # ----------------------------------------------------
+
+        def normalize_hashtag(match):
+
+            tag = match.group(1)
+
+            # Split CamelCase
+            tag = re.sub(
+                r"([a-z])([A-Z])",
+                r"\1 \2",
+                tag
+            )
+
+            # Split letters + numbers
+            tag = re.sub(
+                r"([A-Za-z])([0-9])",
+                r"\1 \2",
+                tag
+            )
+
+            return " " + tag + " "
+
         text = re.sub(
-            r"#([a-zA-Z]+)",
-            r" \1 ",
+            r"#([A-Za-z][A-Za-z0-9_]*)",
+            normalize_hashtag,
             text
         )
 
-        # Preserve Unicode characters such as Hindi.
+        # ----------------------------------------------------
+        # Lowercase after hashtag processing
+        # ----------------------------------------------------
 
-        # Normalize punctuation
+        text = text.lower()
+
+        # ----------------------------------------------------
+        # Normalize underscores, pipes and slashes
+        # ----------------------------------------------------
+
         text = re.sub(
             r"[_|/]+",
             " ",
             text
         )
+
+        # ----------------------------------------------------
+        # Normalize punctuation
+        # ----------------------------------------------------
 
         text = re.sub(
             r"[,:;()\[\]{}]+",
@@ -742,7 +995,10 @@ class Categorizer:
             text
         )
 
+        # ----------------------------------------------------
         # Normalize whitespace
+        # ----------------------------------------------------
+
         text = re.sub(
             r"\s+",
             " ",
@@ -752,7 +1008,7 @@ class Categorizer:
         return text.strip()
 
     # ========================================================
-    # HELPERS
+    # HELPER
     # ========================================================
 
     def _contains_any(
@@ -780,6 +1036,102 @@ class Categorizer:
             f"{title or ''} {description or ''}"
         )
 
+        # ----------------------------------------------------
+        # CRITICAL DISASTER OVERRIDES
+        # ----------------------------------------------------
+
+        critical_event_terms = [
+            "severe flooding",
+            "extreme flooding",
+            "massive flooding",
+            "catastrophic flooding",
+            "flash flood",
+            "flash flooding",
+            "flood emergency",
+            "evacuation order",
+            "red alert",
+            "dam breach",
+            "dam breached",
+            "embankment breach",
+            "embankment breached",
+            "river breached",
+            "extremely severe",
+            "severe cyclonic storm",
+            "critical flooding",
+            "catastrophic",
+            "devastating",
+            "historic disaster",
+            "unprecedented",
+            "deaths",
+            "killed",
+            "destroyed",
+
+            # Hindi
+            "भयंकर बाढ़",
+            "गंभीर बाढ़",
+            "बाढ़ आपातकाल",
+            "निकासी आदेश",
+            "लाल चेतावनी",
+        ]
+
+        if self._contains_any(
+            text,
+            critical_event_terms
+        ):
+            return "critical", 0.95
+
+        # ----------------------------------------------------
+        # HIGH SEVERITY EVENT OVERRIDES
+        # ----------------------------------------------------
+
+        high_event_terms = [
+            "flood",
+            "flooding",
+            "flooded",
+            "inundated",
+            "inundation",
+            "submerged",
+            "waterlogging",
+            "severe waterlogging",
+            "heavy rain",
+            "heavy rainfall",
+            "very heavy rain",
+            "very heavy rainfall",
+            "intense rain",
+            "intense rainfall",
+            "cyclone",
+            "cyclonic storm",
+            "storm surge",
+            "landfall",
+            "strong winds",
+            "damaging winds",
+            "severe thunderstorm",
+            "river overflow",
+            "rising water level",
+            "orange alert",
+            "evacuation",
+
+            # Hindi
+            "भारी बारिश",
+            "मूसलाधार बारिश",
+            "तेज बारिश",
+            "बाढ़",
+            "जलमग्न",
+            "जलभराव",
+            "निकासी",
+            "खतरा",
+        ]
+
+        if self._contains_any(
+            text,
+            high_event_terms
+        ):
+            return "high", 0.90
+
+        # ----------------------------------------------------
+        # Standard severity pattern scoring
+        # ----------------------------------------------------
+
         scores = {}
 
         for severity, patterns in self.severity_patterns.items():
@@ -787,16 +1139,26 @@ class Categorizer:
             score = 0
 
             for pattern in patterns:
+
                 if pattern.lower() in text:
                     score += 1
 
             if score > 0:
                 scores[severity] = score
 
+        # ----------------------------------------------------
+        # No severity signal
+        # ----------------------------------------------------
+
         if not scores:
             return "low", 0.5
 
-        # Critical always wins.
+        # ----------------------------------------------------
+        # Priority:
+        #
+        # critical > high > moderate > low
+        # ----------------------------------------------------
+
         if "critical" in scores:
             best = "critical"
 
@@ -814,7 +1176,10 @@ class Categorizer:
             1.0
         )
 
-        return best, round(confidence, 3)
+        return (
+            best,
+            round(confidence, 3)
+        )
 
     # ========================================================
     # BATCH API
