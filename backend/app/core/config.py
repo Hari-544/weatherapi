@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     # External APIs
     OPENWEATHER_API_KEY: str = ""
     TWITTER_BEARER_TOKEN: str = ""
+    APIFY_API_TOKEN: str = ""
+    APIFY_X_ACTOR_ID: str = "data-slayer~twitter-search"
 
     # File uploads
     UPLOAD_DIR: str = "./uploads"
