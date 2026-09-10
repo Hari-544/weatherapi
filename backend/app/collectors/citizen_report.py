@@ -1,26 +1,25 @@
 import logging
-import os
 from typing import Optional, List, Dict
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import UploadFile, HTTPException
 from app.core.config import settings
 from app.services.weather_service import weather_service
+from app.services.media_service import read_and_validate_uploads, store_media
 from app.models.weather_event import EventSource
 from app.utils.geolocation import get_city_coordinates
 from app.collectors.twitter_collector import INDIAN_STATES_AND_CITIES
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
-
 
 class CitizenReportHandler:
     def __init__(self):
-        self.upload_dir = Path(settings.UPLOAD_DIR)
-        self.upload_dir.mkdir(parents=True, exist_ok=True)
+        self.upload_dir = None
+        if settings.UPLOAD_DIR and settings.UPLOAD_DIR.strip():
+            from pathlib import Path
+            self.upload_dir = Path(settings.UPLOAD_DIR)
+            self.upload_dir.mkdir(parents=True, exist_ok=True)
 
     async def handle_report(
         self,
@@ -72,40 +71,9 @@ class CitizenReportHandler:
         longitude: Optional[float] = None,
         reported_by_id: Optional[int] = None,
     ) -> dict:
-        saved_photos = []
-        saved_videos = []
-
-        user_dir = self.upload_dir / f"user_{reported_by_id or 'anonymous'}"
-        user_dir.mkdir(parents=True, exist_ok=True)
-
-        for file in files:
-            if not file.filename:
-                continue
-
-            ext = Path(file.filename).suffix.lower()
-            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-            safe_filename = f"{timestamp}_{file.filename.replace(' ', '_')}"
-
-            if ext in ALLOWED_IMAGE_EXTENSIONS:
-                dest = user_dir / "photos" / safe_filename
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                content = await file.read()
-                if len(content) > settings.MAX_UPLOAD_SIZE:
-                    raise HTTPException(status_code=413, detail=f"File {file.filename} exceeds max size")
-                with open(dest, "wb") as f:
-                    f.write(content)
-                saved_photos.append("/uploads/" + str(dest.relative_to(self.upload_dir)).replace("\\", "/"))
-            elif ext in ALLOWED_VIDEO_EXTENSIONS:
-                dest = user_dir / "videos" / safe_filename
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                content = await file.read()
-                if len(content) > settings.MAX_UPLOAD_SIZE:
-                    raise HTTPException(status_code=413, detail=f"Video {file.filename} exceeds max size")
-                with open(dest, "wb") as f:
-                    f.write(content)
-                saved_videos.append("/uploads/" + str(dest.relative_to(self.upload_dir)).replace("\\", "/"))
-            else:
-                logger.warning(f"Unsupported file type: {file.filename}")
+        # Validate every file before touching the database so a report is only
+        # stored when the evidence passes the size/MIME checks.
+        entries = await read_and_validate_uploads(files)
 
         event = await weather_service.ingest_event(
             db=db,
@@ -116,10 +84,23 @@ class CitizenReportHandler:
             state=state,
             latitude=latitude,
             longitude=longitude,
-            photos=saved_photos,
-            videos=saved_videos,
             reported_by_id=reported_by_id,
         )
+
+        photos: List[str] = []
+        videos: List[str] = []
+        if entries:
+            photos, videos = await store_media(
+                db=db,
+                entries=entries,
+                event_id=event.id,
+                uploaded_by_id=reported_by_id,
+            )
+            event.photos = photos
+            event.videos = videos
+            await db.commit()
+            await db.refresh(event)
+
         return event.to_dict()
 
     async def validate_location(self, city: Optional[str], state: Optional[str]) -> Dict:

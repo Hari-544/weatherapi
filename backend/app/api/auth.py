@@ -86,8 +86,17 @@ async def get_current_user(
 
 
 async def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role not in (UserRole.ADMIN, UserRole.ANALYST):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    """Require an administrator account.
+
+    Admin-only operations (verification, deletion, manual event edits and
+    data ingestion) are restricted to the `admin` role. Citizens and analysts
+    receive a 403 so the admin panel is enforced both in the API and UI.
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions: administrator role required",
+        )
     return current_user
 
 

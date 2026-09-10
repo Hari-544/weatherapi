@@ -375,3 +375,126 @@ async def source_breakdown(
             for r in rows
         ]
     }
+
+
+@router.get("/intelligence-summary", response_model=dict)
+async def intelligence_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """SIH-grade intelligence overview for the dashboard.
+
+    Complements the existing endpoints by exposing verification-score
+    quality, corroboration, misinformation risk, priority, and source
+    health in one payload the dashboard can render directly.
+    """
+    from app.ml.source_trust import get_all_source_trusts
+
+    total = (await db.execute(
+        select(func.count()).select_from(WeatherEvent)
+    )).scalar() or 0
+
+    verified = (await db.execute(
+        select(func.count()).select_from(WeatherEvent).where(
+            WeatherEvent.verification_status == VerificationStatus.VERIFIED)
+    )).scalar() or 0
+
+    needs_review = (await db.execute(
+        select(func.count()).select_from(WeatherEvent).where(
+            WeatherEvent.verification_status == VerificationStatus.NEEDS_REVIEW)
+    )).scalar() or 0
+
+    pending = (await db.execute(
+        select(func.count()).select_from(WeatherEvent).where(
+            WeatherEvent.verification_status == VerificationStatus.PENDING)
+    )).scalar() or 0
+
+    rejected = (await db.execute(
+        select(func.count()).select_from(WeatherEvent).where(
+            WeatherEvent.verification_status == VerificationStatus.REJECTED)
+    )).scalar() or 0
+
+    misinfo = (await db.execute(
+        select(func.count()).select_from(WeatherEvent).where(
+            WeatherEvent.is_fake == True)
+    )).scalar() or 0
+
+    avg_verification = (await db.execute(
+        select(func.avg(WeatherEvent.verification_score)).where(
+            WeatherEvent.verification_score.isnot(None),
+            WeatherEvent.verification_score > 0,
+        )
+    )).scalar() or 0
+
+    corroborated = (await db.execute(
+        select(func.count()).select_from(WeatherEvent).where(
+            WeatherEvent.incident_id.isnot(None))
+    )).scalar() or 0
+
+    critical_priority = (await db.execute(
+        select(func.count()).select_from(WeatherEvent).where(
+            WeatherEvent.priority_score >= 75)
+    )).scalar() or 0
+
+    high_priority = (await db.execute(
+        select(func.count()).select_from(WeatherEvent).where(
+            WeatherEvent.priority_score.between(50, 74.99))
+    )).scalar() or 0
+
+    lifecycle_rows = (await db.execute(
+        select(
+            WeatherEvent.lifecycle,
+            func.count(WeatherEvent.id).label("count"),
+        )
+        .where(WeatherEvent.lifecycle.isnot(None))
+        .group_by(WeatherEvent.lifecycle)
+    )).all()
+
+    top_priority_events = (await db.execute(
+        select(WeatherEvent)
+        .where(
+            WeatherEvent.priority_score.isnot(None),
+            WeatherEvent.priority_score > 0,
+        )
+        .order_by(WeatherEvent.priority_score.desc())
+        .limit(8)
+    )).scalars().all()
+
+    try:
+        source_trusts = await get_all_source_trusts(db)
+    except Exception:
+        source_trusts = []
+
+    return {
+        "total": total,
+        "verified": verified,
+        "needs_review": needs_review,
+        "pending": pending,
+        "rejected": rejected,
+        "detected_misinfo": misinfo,
+        "verification_rate": (verified / total * 100) if total else 0,
+        "misinfo_rate": (misinfo / total * 100) if total else 0,
+        "corroboration_rate": (corroborated / total * 100) if total else 0,
+        "avg_verification_score": round(float(avg_verification), 1) if avg_verification else 0,
+        "priority": {
+            "critical": critical_priority,
+            "high": high_priority,
+        },
+        "lifecycle": {
+            r.lifecycle: r.count for r in lifecycle_rows
+        },
+        "top_priority_events": [
+            e.to_dict()
+            for e in top_priority_events
+        ],
+        "source_health": [
+            {
+                "source_type": s.get("source_type"),
+                "source_name": s.get("source_name"),
+                "trust_score": s.get("trust_score"),
+                "total_reports": s.get("total_reports"),
+                "reliability_reason": s.get("reliability_reason"),
+                "has_sufficient_data": s.get("has_sufficient_data"),
+            }
+            for s in source_trusts[:10]
+        ],
+    }

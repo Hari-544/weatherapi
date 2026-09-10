@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { BarChart3, TrendingUp, MapPin, RefreshCw } from 'lucide-react';
+import { BarChart3, TrendingUp, MapPin, RefreshCw, ShieldCheck, Layers, AlertTriangle, Fingerprint } from 'lucide-react';
 import WeatherMap from '../components/WeatherMap.jsx';
 import {
   EventsByTypeBarChart,
@@ -20,6 +20,7 @@ export default function Analytics() {
   const [sourceBreakdown, setSourceBreakdown] = useState([]);
   const [recentEvents, setRecentEvents] = useState([]);
   const [topCities, setTopCities] = useState([]);
+  const [intel, setIntel] = useState(null);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState('30');
   const [granularity, setGranularity] = useState('day');
@@ -42,6 +43,7 @@ export default function Analytics() {
         api.get('/api/dashboard/recent-events?limit=5'),
         api.get('/api/dashboard/top-cities?limit=10'),
         api.get('/api/weather?per_page=100'),
+        api.get('/api/dashboard/intelligence-summary'),
       ]);
 
       const resolve = (r) => r.status === 'fulfilled' ? r.value.data.data : [];
@@ -56,6 +58,7 @@ export default function Analytics() {
       if (results[8].status === 'fulfilled') {
         setRecentEvents(results[8].value.data.data);
       }
+      if (results[9].status === 'fulfilled') setIntel(results[9].value.data);
     } catch (err) {
       console.error('Analytics fetch error:', err);
     }
@@ -101,6 +104,60 @@ export default function Analytics() {
           </button>
         </div>
       </div>
+
+      <section
+        className="card border-primary-500/20"
+        aria-label="AI Intelligence Insights"
+        style={{ background: 'linear-gradient(to bottom right, rgba(99,102,241,0.08), transparent)' }}
+      >
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-4">
+          <ShieldCheck className="w-4 h-4 text-primary-400" />
+          AI Intelligence Insights
+        </h3>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="rounded-xl border border-dark-700 bg-dark-900/60 p-4">
+            <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              Verification
+            </div>
+            <p className="text-2xl font-bold text-emerald-400">{(intel?.verification_rate || 0).toFixed(1)}%</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {intel?.verified || 0} verified of {intel?.total || 0} · avg score {intel?.avg_verification_score || 0}/100
+            </p>
+          </div>
+          <div className="rounded-xl border border-dark-700 bg-dark-900/60 p-4">
+            <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+              <Layers className="w-3.5 h-3.5 text-sky-400" />
+              Corroboration
+            </div>
+            <p className="text-2xl font-bold text-sky-400">{(intel?.corroboration_rate || 0).toFixed(1)}%</p>
+            <p className="text-xs text-gray-500 mt-1">events grouped into incidents</p>
+          </div>
+          <div className="rounded-xl border border-dark-700 bg-dark-900/60 p-4">
+            <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+              Misinformation Risk
+            </div>
+            <p className="text-2xl font-bold text-rose-400">
+              {intel?.detected_misinfo || 0}
+              <span className="text-sm font-normal text-gray-500 ml-1">({(intel?.misinfo_rate || 0).toFixed(1)}%)</span>
+            </p>
+            <p className="text-xs text-gray-500 mt-1">flagged as possible fake</p>
+          </div>
+          <div className="rounded-xl border border-dark-700 bg-dark-900/60 p-4">
+            <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+              <Fingerprint className="w-3.5 h-3.5 text-amber-400" />
+              Priority Load
+            </div>
+            <p className="text-2xl font-bold text-amber-400">
+              {(intel?.priority?.critical || 0) + (intel?.priority?.high || 0)}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              {intel?.priority?.critical || 0} critical · {intel?.priority?.high || 0} high
+            </p>
+          </div>
+        </div>
+      </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <EventsByTypeBarChart data={byType} />

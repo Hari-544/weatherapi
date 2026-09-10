@@ -40,8 +40,21 @@ function FitBounds({ events }) {
   return null;
 }
 
-export default function WeatherMap({ events = [], height = '500px', showLegend = true }) {
+function scoreColor(score) {
+  if (score == null) return '#9ca3af';
+  if (score >= 75) return '#34d399';
+  if (score >= 50) return '#38bdf8';
+  if (score >= 25) return '#fbbf24';
+  return '#f87171';
+}
+
+export default function WeatherMap({ events = [], height = '500px', showLegend = true, onSelectEvent }) {
   const [selectedEvent, setSelectedEvent] = useState(null);
+
+  const handleSelect = (event) => {
+    setSelectedEvent(event);
+    onSelectEvent?.(event);
+  };
 
   return (
     <div className="relative">
@@ -64,20 +77,26 @@ export default function WeatherMap({ events = [], height = '500px', showLegend =
           if (!event.latitude || !event.longitude) return null;
           const color = EVENT_COLORS[event.event_type] || '#64748b';
           const radius = SEVERITY_SIZES[event.severity] || 6;
+          const intel = event.intelligence || {};
+          const verificationScore = event.verification_score ?? intel.verification?.score;
+          const classificationConfidence = event.category_confidence
+            ?? intel.classification?.confidence;
+          const lifecycle = event.lifecycle ?? intel.lifecycle?.lifecycle;
+          const verified = event.verification_status === 'verified';
           return (
             <CircleMarker
               key={event.id}
               center={[event.latitude, event.longitude]}
               radius={radius}
               pathOptions={{
-                color: color,
+                color: verified ? scoreColor(verificationScore) : color,
                 fillColor: color,
-                fillOpacity: event.verification_status === 'verified' ? 0.9 : 0.6,
-                weight: event.verification_status === 'verified' ? 2 : 1,
+                fillOpacity: verified ? 0.9 : 0.6,
+                weight: verified ? 3 : 1,
                 opacity: 0.9,
               }}
               eventHandlers={{
-                click: () => setSelectedEvent(event),
+                click: () => handleSelect(event),
               }}
             >
               <Popup className="custom-popup">
@@ -98,10 +117,36 @@ export default function WeatherMap({ events = [], height = '500px', showLegend =
                     <div className="col-span-2">
                       <span className="font-medium">Status:</span> {event.verification_status}
                     </div>
+                    {verificationScore != null && (
+                      <div className="col-span-2">
+                        <span className="font-medium">AI Verification:</span>{' '}
+                        <span style={{ color: scoreColor(verificationScore) }}>
+                          {Math.round(verificationScore)}/100
+                        </span>
+                      </div>
+                    )}
+                    {classificationConfidence != null && (
+                      <div className="col-span-2">
+                        <span className="font-medium">AI Classification:</span>{' '}
+                        {event.event_type} ({(classificationConfidence * 100).toFixed(0)}%)
+                      </div>
+                    )}
+                    {lifecycle && (
+                      <div className="col-span-2">
+                        <span className="font-medium">Lifecycle:</span> {lifecycle}
+                      </div>
+                    )}
                     <div className="col-span-2 text-gray-400">
                       {dayjs(event.reported_at).format('DD MMM YYYY, hh:mm A')}
                     </div>
                   </div>
+                  <a
+                    href={`/events/${event.id}/intelligence`}
+                    onClick={(e) => { e.stopPropagation(); handleSelect(event); }}
+                    className="mt-2 inline-block text-xs font-semibold text-primary-600 hover:text-primary-700"
+                  >
+                    View AI intelligence →
+                  </a>
                 </div>
               </Popup>
             </CircleMarker>
@@ -120,6 +165,9 @@ export default function WeatherMap({ events = [], height = '500px', showLegend =
               </div>
             ))}
           </div>
+          <p className="mt-2 border-t border-dark-700/50 pt-2 text-[10px] text-gray-500">
+            Ring color = AI verification score on verified events
+          </p>
         </div>
       )}
     </div>

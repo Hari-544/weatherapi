@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, List, Dict
 from datetime import datetime
 from sqlalchemy import select, func
@@ -10,6 +11,12 @@ from app.models.weather_event import (
 from app.ml.categorizer import Categorizer
 from app.ml.fake_detector import FakeDetector
 from app.ml.deduplicator import Deduplicator
+from app.ml.classifier_engine import classifier_engine
+from app.ml.severity_engine import severity_engine
+from app.services.notification_service import notify_affected_citizens
+from app.services.intelligence_service import intelligence_service
+
+logger = logging.getLogger(__name__)
 
 
 class WeatherService:
@@ -39,9 +46,17 @@ class WeatherService:
         category_label, confidence = self.categorizer.categorize(title, description)
         event_type = category_label or EventType.OTHER
 
+        classification_result = classifier_engine.classify(title, description)
+        if classification_result.category and classification_result.confidence >= confidence:
+            event_type = classification_result.category
+            confidence = classification_result.confidence
+
         is_fake, fake_confidence = self.fake_detector.predict(title, description)
 
         severity = self._determine_severity(title, description, event_type)
+        severity_result = severity_engine.determine(title, description, event_type, city or "")
+        if severity_result[1] >= 0.8:
+            severity = severity_result[0]
 
         event = WeatherEvent(
             title=title,
@@ -73,6 +88,33 @@ class WeatherService:
         db.add(event)
         await db.commit()
         await db.refresh(event)
+
+        try:
+            await intelligence_service.process_event(db, event)
+            if event.verification_status == VerificationStatus.PENDING:
+                intelligence = (event.metadata_ or {}).get("intelligence", {}) if isinstance(event.metadata_, dict) else {}
+                v = intelligence.get("verification", {})
+                status_map = {
+                    "VERIFIED": VerificationStatus.VERIFIED,
+                    "REJECTED": VerificationStatus.REJECTED,
+                    "NEEDS_REVIEW": VerificationStatus.NEEDS_REVIEW,
+                    "PROBABLE": VerificationStatus.PENDING,
+                    "UNVERIFIED": VerificationStatus.PENDING,
+                }
+                auto = status_map.get(v.get("status"))
+                if auto:
+                    event.verification_status = auto
+            await db.commit()
+            await db.refresh(event)
+        except Exception as exc:
+            logger.warning("Intelligence pipeline failed for event %s: %s", getattr(event, "id", "?"), exc)
+            await db.rollback()
+
+        try:
+            await notify_affected_citizens(db, event)
+        except Exception as exc:
+            logger.warning("Location-based notification failed for event %s: %s", getattr(event, "id", "?"), exc)
+
         return event
 
     def _determine_severity(self, title: str, description: str, event_type: EventType) -> SeverityLevel:

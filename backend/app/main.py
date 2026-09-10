@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, status
+from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,7 +8,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import weather, auth, dashboard, ingest
+from app.api import weather, auth, dashboard, ingest, media, notifications, intelligence
 
 
 @asynccontextmanager
@@ -39,8 +40,11 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(weather.router, prefix="/api/weather", tags=["Weather Events"])
+app.include_router(media.router, prefix="/api/media", tags=["Report Media"])
+app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard & Analytics"])
 app.include_router(ingest.router, prefix="/api/ingest", tags=["Data Ingestion"])
+app.include_router(intelligence.router, prefix="/api/intelligence", tags=["Intelligence & Explainability"])
 
 
 @app.get("/health", tags=["Health"])
@@ -50,6 +54,42 @@ async def health_check():
         "service": "national-weather-platform",
         "version": "1.0.0",
     }
+
+
+@app.get("/api/health", tags=["Health"])
+async def api_health_check():
+    """Report app, database, and required weather schema health safely."""
+    from sqlalchemy import text
+
+    required_columns = {
+        "incident_id",
+        "verification_score",
+        "priority_score",
+        "source_trust_score",
+        "data_quality_score",
+        "lifecycle",
+    }
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+            result = await connection.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = current_schema() AND table_name = 'weather_events'"
+            ))
+            available = {row[0] for row in result}
+        missing = sorted(required_columns - available)
+        if missing:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"status": "degraded", "database": "reachable", "missing_weather_event_columns": missing},
+            )
+        return {"status": "healthy", "database": "reachable", "schema": "current"}
+    except Exception:
+        # Deliberately avoid disclosing a connection string or provider details.
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "degraded", "database": "unreachable"},
+        )
 
 
 @app.get("/{full_path:path}", include_in_schema=False)

@@ -9,6 +9,8 @@ from app.core.config import settings
 from app.core.database import Base
 from app.models.weather_event import WeatherEvent
 from app.models.user import User
+from app.models.notification import Notification
+from app.models.report_media import ReportMedia
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

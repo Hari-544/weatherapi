@@ -79,6 +79,10 @@ cp .env.example .env
 # Set OPENWEATHER_API_KEY and TWITTER_BEARER_TOKEN when live collection is required.
 # Without them, the Admin panel marks those sources as skipped; sample data remains opt-in.
 
+# Apply database migrations (idempotent: safe on fresh and existing databases).
+# ALWAYS run this before starting the app, especially on an existing database.
+alembic upgrade head
+
 # Seed the database with sample data
 python ../scripts/seed_database.py
 
@@ -159,8 +163,34 @@ python seed_database.py
 | GET | `/api/weather/{id}` | Get event details |
 | PUT | `/api/weather/{id}` | Update event (admin) |
 | DELETE | `/api/weather/{id}` | Delete event (admin) |
-| POST | `/api/weather/{id}/verify` | Verify/reject event |
+| POST | `/api/weather/{id}/verify` | Verify/reject event (admin only) |
+| POST | `/api/weather/citizen-report` | Submit a citizen report with optional photo/video evidence (authenticated) |
 | GET | `/api/weather/stats/general` | Event statistics |
+
+### Media Evidence (DB-backed)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/media/{id}` | Evidence metadata (authenticated) |
+| GET | `/api/media/{id}/content` | Streamed image/video bytes (authenticated) |
+
+Evidence uploaded with citizen reports is stored in PostgreSQL (`report_media` table) and
+served only to authenticated users — it is never publicly accessible. Event responses
+reference it as `"media": [{"id", "kind", "url"}]`. The legacy `/uploads` mount is kept
+only for pre-existing filesystem files.
+
+### Notifications & Location-Based Alerts
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/notifications` | List the caller's notifications |
+| GET | `/api/notifications/unread-count` | Unread badge count |
+| POST | `/api/notifications/{id}/read` | Mark one notification as read |
+| POST | `/api/notifications/read-all` | Mark all as read |
+| GET | `/api/notifications/preferences` | Get alert preferences |
+| PUT | `/api/notifications/preferences` | Save consent + location + alert radius |
+
+Citizens can opt in with their location (lat/lng) and a radius (10–100 km). When a
+HIGH/CRITICAL event is ingested with coordinates, everyone opted in within that radius
+receives a notification, regardless of ingestion source (Twitter/X, web, API, citizen).
 
 ### Dashboard Analytics
 | Method | Endpoint | Description |
@@ -174,6 +204,37 @@ python seed_database.py
 | GET | `/api/dashboard/recent-events` | Recent events |
 | GET | `/api/dashboard/source-breakdown` | Data source breakdown |
 
+## Testing
+
+DB-free unit tests run anywhere (including environments where the full ML stack cannot
+be installed, e.g. Python 3.14):
+
+```bash
+cd backend
+pip install -r requirements.txt -r requirements-dev.txt
+python -m unittest discover tests -v
+```
+
+The same suite includes opt-in integration tests that exercise the real app + PostgreSQL
+(public browsing, admin-only enforcement, DB-backed media, notification preferences).
+Run them only where the database is reachable:
+
+```bash
+# PowerShell
+$env:RUN_API_INTEGRATION = "1"
+pytest tests/test_api_integration.py -q
+```
+
+## Deployment (Render / Vercel)
+
+- **PostgreSQL**: use Render Postgres or Neon; put the connection string in `DATABASE_URL`.
+- **Backend**: Web Service with start command
+  `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}`
+  (the Docker image does this automatically). Migrations are idempotent
+  (`IF NOT EXISTS`), so upgrading an existing database preserves all current data.
+- **Frontend**: Vercel stores built output directly; the Vercel build (`npm run build`)
+  already runs via the framework preset.
+
 ## Sample Users
 
 After seeding, the following users are available:
@@ -184,6 +245,9 @@ After seeding, the following users are available:
 | analyst | analyst123 | Analyst |
 | citizen1 | citizen123 | Citizen |
 | citizen2 | citizen123 | Citizen |
+
+Note: verification, moderation, ingestion, and event modification endpoints are
+`admin`-only. Analyst accounts retain read/analytics access only.
 
 ## Environment Variables
 

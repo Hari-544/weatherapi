@@ -121,7 +121,10 @@ async def list_events(
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(WeatherEvent)
+    query = select(WeatherEvent).options(
+        selectinload(WeatherEvent.reported_by),
+        selectinload(WeatherEvent.verified_by),
+    )
 
     if event_type:
         query = query.where(WeatherEvent.event_type == event_type)
@@ -160,7 +163,21 @@ async def list_events(
     events = result.scalars().all()
 
     return {
-        "data": [e.to_dict() for e in events],
+        "data": [
+            e.to_dict(
+                reported_by_name=(
+                    (e.reported_by.full_name or e.reported_by.username)
+                    if e.reported_by
+                    else None
+                ),
+                verified_by_name=(
+                    (e.verified_by.full_name or e.verified_by.username)
+                    if e.verified_by
+                    else None
+                ),
+            )
+            for e in events
+        ],
         "pagination": {
             "page": page,
             "per_page": per_page,
@@ -210,7 +227,9 @@ async def create_event(
 
     await db.commit()
     await db.refresh(new_event)
-    return new_event.to_dict()
+    return new_event.to_dict(
+        reported_by_name=current_user.full_name or current_user.username
+    )
 
 
 @router.get("/stats/general", response_model=dict)
@@ -257,11 +276,29 @@ async def get_event(
     event_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(WeatherEvent).where(WeatherEvent.id == event_id))
+    result = await db.execute(
+        select(WeatherEvent)
+        .options(
+            selectinload(WeatherEvent.reported_by),
+            selectinload(WeatherEvent.verified_by),
+        )
+        .where(WeatherEvent.id == event_id)
+    )
     event = result.scalar_one_or_none()
     if not event:
         raise HTTPException(status_code=404, detail="Weather event not found")
-    return event.to_dict()
+    return event.to_dict(
+        reported_by_name=(
+            (event.reported_by.full_name or event.reported_by.username)
+            if event.reported_by
+            else None
+        ),
+        verified_by_name=(
+            (event.verified_by.full_name or event.verified_by.username)
+            if event.verified_by
+            else None
+        ),
+    )
 
 
 @router.put("/{event_id}", response_model=dict)
@@ -310,7 +347,7 @@ async def delete_event(
 async def verify_event(
     event_id: int,
     verify_req: VerifyRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(WeatherEvent).where(WeatherEvent.id == event_id))
@@ -327,4 +364,20 @@ async def verify_event(
 
     await db.commit()
     await db.refresh(event)
+
+    from app.services.notification_service import notify_user
+    if event.reported_by_id and event.reported_by_id != current_user.id:
+        await notify_user(
+            db=db,
+            user_id=event.reported_by_id,
+            notification_type="verification",
+            title="Your weather report has been reviewed",
+            message=(
+                f"Your report \u201c{event.title}\u201d was marked "
+                f"'{verify_req.verification_status.value}' "
+                f"by an administrator."
+            ),
+            event_id=event.id,
+        )
+
     return event.to_dict()

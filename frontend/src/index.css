@@ -6,6 +6,9 @@
   body {
     @apply bg-dark-950 text-gray-100 antialiased;
   }
+  *:focus-visible {
+    @apply outline-2 outline-offset-2 outline-primary-400 rounded;
+  }
 }
 
 @layer components {
@@ -68,6 +71,12 @@
 @layer utilities {
   .text-gradient {
     @apply bg-gradient-to-r from-primary-400 to-cyan-400 bg-clip-text text-transparent;
+  }
+  .skip-link {
+    @apply absolute -top-10 left-0 z-[100] bg-primary-600 text-white px-4 py-2 text-sm font-medium transition-all;
+  }
+  .skip-link:focus {
+    @apply top-0;
   }
 }
 

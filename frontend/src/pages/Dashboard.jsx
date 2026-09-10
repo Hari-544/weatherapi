@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   CloudRain, CloudLightning, Zap, AlertTriangle, MapPin,
-  Clock, TrendingUp, Eye, RefreshCw, Activity
+  Clock, TrendingUp, Eye, RefreshCw, Activity, Plus, Database,
+  Twitter, Globe, Users, ArrowRight, ShieldCheck, Layers, Fingerprint, Brain
 } from 'lucide-react';
 import StatsCard from '../components/StatsCard.jsx';
 import WeatherMap from '../components/WeatherMap.jsx';
@@ -14,8 +15,26 @@ import {
   VerificationStatsChart,
 } from '../components/Charts.jsx';
 import { api } from '../services/api.js';
+import { useNavigate } from 'react-router-dom';
+
+const SOURCE_ICONS = {
+  twitter: Twitter,
+  web: Globe,
+  api: Database,
+  citizen_report: Users,
+  other: Globe,
+};
+
+const SOURCE_COLORS = {
+  twitter: 'text-cyan-400 bg-cyan-500/20',
+  web: 'text-blue-400 bg-blue-500/20',
+  api: 'text-green-400 bg-green-500/20',
+  citizen_report: 'text-purple-400 bg-purple-500/20',
+  other: 'text-gray-400 bg-gray-500/20',
+};
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [events, setEvents] = useState([]);
   const [byType, setByType] = useState([]);
@@ -25,11 +44,13 @@ export default function Dashboard() {
   const [verification, setVerification] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  const [sourceBreakdown, setSourceBreakdown] = useState([]);
+  const [intel, setIntel] = useState(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [statsRes, eventsRes, typeRes, timeRes, stateRes, sevRes, verRes] = await Promise.allSettled([
+      const [statsRes, eventsRes, typeRes, timeRes, stateRes, sevRes, verRes, intelRes] = await Promise.allSettled([
         api.get('/api/weather/stats/general'),
         api.get('/api/weather?per_page=20'),
         api.get('/api/dashboard/events-by-type'),
@@ -37,15 +58,27 @@ export default function Dashboard() {
         api.get('/api/dashboard/events-by-state'),
         api.get('/api/dashboard/severity-distribution'),
         api.get('/api/dashboard/verification-stats'),
+        api.get('/api/dashboard/intelligence-summary'),
       ]);
 
       if (statsRes.status === 'fulfilled') setStats(statsRes.value.data);
-      if (eventsRes.status === 'fulfilled') setEvents(eventsRes.value.data.data);
+      if (eventsRes.status === 'fulfilled') {
+        const eventData = eventsRes.value.data.data;
+        setEvents(eventData);
+        
+        const sourceCounts = {};
+        eventData.forEach(e => {
+          const src = e.source || 'other';
+          sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+        });
+        setSourceBreakdown(Object.entries(sourceCounts).map(([name, count]) => ({ name, count })));
+      }
       if (typeRes.status === 'fulfilled') setByType(typeRes.value.data.data);
       if (timeRes.status === 'fulfilled') setOverTime(timeRes.value.data.data);
       if (stateRes.status === 'fulfilled') setByState(stateRes.value.data.data);
       if (sevRes.status === 'fulfilled') setSeverity(sevRes.value.data.data);
       if (verRes.status === 'fulfilled') setVerification(verRes.value.data.data);
+      if (intelRes.status === 'fulfilled') setIntel(intelRes.value.data);
     } catch (err) {
       console.error('Dashboard fetch error:', err);
     }
@@ -62,8 +95,8 @@ export default function Dashboard() {
   const handleRefresh = () => fetchData();
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6" role="main" aria-label="Dashboard">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Dashboard</h1>
           <p className="text-sm text-gray-400 mt-1">
@@ -71,11 +104,16 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500 flex items-center gap-1">
+          <span className="text-xs text-gray-500 flex items-center gap-1" aria-live="polite">
             <Clock className="w-3 h-3" />
             Last updated: {lastRefresh.toLocaleTimeString()}
           </span>
-          <button onClick={handleRefresh} className="btn-secondary inline-flex items-center gap-2" disabled={loading}>
+          <button 
+            onClick={handleRefresh} 
+            className="btn-secondary inline-flex items-center gap-2" 
+            disabled={loading}
+            aria-label="Refresh dashboard data"
+          >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
@@ -89,8 +127,6 @@ export default function Dashboard() {
           subtitle="All recorded weather events"
           icon={Activity}
           variant="primary"
-          trend="up"
-          trendValue="+12.5%"
         />
         <StatsCard
           title="Today's Events"
@@ -98,8 +134,6 @@ export default function Dashboard() {
           subtitle="Reported in the last 24 hours"
           icon={Zap}
           variant="info"
-          trend="up"
-          trendValue="+5 today"
         />
         <StatsCard
           title="Pending Review"
@@ -107,8 +141,6 @@ export default function Dashboard() {
           subtitle="Awaiting verification"
           icon={Eye}
           variant="warning"
-          trend="neutral"
-          trendValue="No change"
         />
         <StatsCard
           title="Detection Accuracy"
@@ -116,19 +148,188 @@ export default function Dashboard() {
           subtitle="Events verified"
           icon={AlertTriangle}
           variant="success"
-          trend="up"
-          trendValue="+2.3%"
         />
       </div>
 
-      <div className="card overflow-hidden p-0">
-        <div className="p-4 border-b border-dark-700/30">
-          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-            <MapPin className="w-4 h-4 text-primary-400" />
-            Live Event Map
-          </h3>
+      <section
+        className="card border-primary-500/20"
+        aria-label="AI Intelligence Overview"
+        style={{ background: 'linear-gradient(to bottom right, rgba(99,102,241,0.08), transparent)' }}
+      >
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-4">
+          <Brain className="w-4 h-4 text-primary-400" />
+          AI Intelligence Overview
+          <span className="text-[10px] font-normal text-gray-500 ml-auto">
+            Verification · Corroboration · Misinformation · Priority
+          </span>
+        </h3>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="rounded-xl border border-dark-700 bg-dark-900/60 p-4">
+            <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              Verification
+            </div>
+            <p className="text-2xl font-bold text-emerald-400">
+              {(intel?.verification_rate || 0).toFixed(1)}%
+            </p>
+            <p className="text-xs text-gray-500 mt-1">avg verification score {intel?.avg_verification_score || 0}/100</p>
+          </div>
+          <div className="rounded-xl border border-dark-700 bg-dark-900/60 p-4">
+            <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+              <Layers className="w-3.5 h-3.5 text-sky-400" />
+              Corroboration
+            </div>
+            <p className="text-2xl font-bold text-sky-400">{(intel?.corroboration_rate || 0).toFixed(1)}%</p>
+            <p className="text-xs text-gray-500 mt-1">events linked to an incident cluster</p>
+          </div>
+          <div className="rounded-xl border border-dark-700 bg-dark-900/60 p-4">
+            <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+              Misinformation
+            </div>
+            <p className="text-2xl font-bold text-rose-400">
+              {intel?.detected_misinfo || 0}
+              <span className="text-sm font-normal text-gray-500 ml-1">({(intel?.misinfo_rate || 0).toFixed(1)}%)</span>
+            </p>
+            <p className="text-xs text-gray-500 mt-1">flagged as potential fake reports</p>
+          </div>
+          <div className="rounded-xl border border-dark-700 bg-dark-900/60 p-4">
+            <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+              <Fingerprint className="w-3.5 h-3.5 text-amber-400" />
+              Priority Alerts
+            </div>
+            <p className="text-2xl font-bold text-amber-400">
+              {(intel?.priority?.critical || 0) + (intel?.priority?.high || 0)}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              {intel?.priority?.critical || 0} critical · {intel?.priority?.high || 0} high
+            </p>
+          </div>
         </div>
-        <WeatherMap events={events} height="400px" />
+
+        {(intel?.top_priority_events || []).length > 0 && (
+          <div className="mt-4">
+            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+              Top Priority (AI ranked)
+            </h4>
+            <ul className="divide-y divide-dark-700/40">
+              {intel.top_priority_events.slice(0, 5).map((e) => (
+                <li key={e.id}>
+                  <button
+                    onClick={() => navigate(`/events/${e.id}/intelligence`)}
+                    className="w-full flex items-center justify-between gap-3 py-2.5 text-left hover:bg-dark-800/40 rounded-lg px-2 transition-colors"
+                    aria-label={`Open AI intelligence for ${e.title}`}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-200 truncate">{e.title}</p>
+                      <p className="text-xs text-gray-500">
+                        {e.city || 'Unknown city'} · {e.verification_status?.replace('_', ' ')}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className={`text-xs font-semibold ${
+                        e.severity === 'critical' ? 'text-rose-400' : e.severity === 'high' ? 'text-amber-400' : 'text-gray-400'
+                      }`}>
+                        {e.severity}
+                      </span>
+                      <span className="rounded-md bg-primary-500/15 px-2 py-0.5 text-xs font-medium text-primary-300">
+                        {e.priority_score != null ? Math.round(e.priority_score) : '—'}
+                      </span>
+                      <ArrowRight className="w-3.5 h-3.5 text-gray-500" />
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="card overflow-hidden p-0 lg:col-span-2">
+          <div className="p-4 border-b border-dark-700/30">
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-primary-400" />
+              Live Event Map
+            </h3>
+          </div>
+          <WeatherMap events={events} height="400px" />
+        </div>
+
+        <div className="space-y-4">
+          <div className="card">
+            <h3 className="text-sm font-semibold text-white mb-4">Source Breakdown</h3>
+            <div className="space-y-3">
+              {sourceBreakdown.map(({ name, count }) => {
+                const Icon = SOURCE_ICONS[name] || Globe;
+                const colorClass = SOURCE_COLORS[name] || SOURCE_COLORS.other;
+                const total = events.length || 1;
+                const percentage = ((count / total) * 100).toFixed(1);
+                return (
+                  <div key={name} className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${colorClass}`}>
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm text-gray-300 capitalize">{name.replace('_', ' ')}</span>
+                        <span className="text-xs text-gray-500">{count} ({percentage}%)</span>
+                      </div>
+                      <div className="h-1.5 bg-dark-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-primary-500 rounded-full transition-all duration-500"
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {sourceBreakdown.length === 0 && (
+                <p className="text-xs text-gray-500 text-center py-4">No source data available</p>
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <h3 className="text-sm font-semibold text-white mb-3">Quick Actions</h3>
+            <div className="space-y-2">
+              <button
+                onClick={() => navigate('/events')}
+                className="w-full flex items-center justify-between p-3 bg-dark-700/30 hover:bg-dark-700/50 rounded-lg transition-colors text-left"
+                aria-label="Report new weather event"
+              >
+                <div className="flex items-center gap-3">
+                  <Plus className="w-4 h-4 text-primary-400" />
+                  <span className="text-sm text-gray-300">Report Event</span>
+                </div>
+                <ArrowRight className="w-4 h-4 text-gray-500" />
+              </button>
+              <button
+                onClick={() => navigate('/admin')}
+                className="w-full flex items-center justify-between p-3 bg-dark-700/30 hover:bg-dark-700/50 rounded-lg transition-colors text-left"
+                aria-label="Open admin panel"
+              >
+                <div className="flex items-center gap-3">
+                  <Database className="w-4 h-4 text-green-400" />
+                  <span className="text-sm text-gray-300">Admin Panel</span>
+                </div>
+                <ArrowRight className="w-4 h-4 text-gray-500" />
+              </button>
+              <button
+                onClick={() => navigate('/analytics')}
+                className="w-full flex items-center justify-between p-3 bg-dark-700/30 hover:bg-dark-700/50 rounded-lg transition-colors text-left"
+                aria-label="View analytics"
+              >
+                <div className="flex items-center gap-3">
+                  <TrendingUp className="w-4 h-4 text-cyan-400" />
+                  <span className="text-sm text-gray-300">Analytics</span>
+                </div>
+                <ArrowRight className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -144,32 +345,43 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <VerificationStatsChart data={verification} />
         <div className="card">
-          <h3 className="text-sm font-semibold text-white mb-4">Quick Overview</h3>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between p-3 bg-dark-700/30 rounded-lg">
-              <span className="text-sm text-gray-400">Detected as Fake</span>
-              <span className="text-sm font-semibold text-red-400">{stats?.detected_fake || 0}</span>
+          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-primary-400" />
+            Source Health
+          </h3>
+          {intel?.source_health?.length > 0 ? (
+            <div className="space-y-3">
+              {intel.source_health.map((s) => (
+                <div key={s.source_name} className="flex items-center justify-between p-3 bg-dark-700/30 rounded-lg">
+                  <div className="min-w-0">
+                    <p className="text-sm text-gray-300 truncate capitalize">{s.source_name?.replace(/[@_:]+/g, ' ')}</p>
+                    <p className="text-xs text-gray-500">{s.total_reports ?? 0} reports</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {s.has_sufficient_data ? (
+                      <span className="text-[10px] text-emerald-400 uppercase">stat-valid</span>
+                    ) : (
+                      <span className="text-[10px] text-gray-500 uppercase">insufficient</span>
+                    )}
+                    <span className={`text-sm font-semibold ${
+                      (s.trust_score || 0) >= 75 ? 'text-emerald-400' : (s.trust_score || 0) >= 50 ? 'text-amber-400' : 'text-rose-400'
+                    }`}>
+                      {s.trust_score != null ? Math.round(s.trust_score) : '—'}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="flex items-center justify-between p-3 bg-dark-700/30 rounded-lg">
-              <span className="text-sm text-gray-400">Verified Events</span>
-              <span className="text-sm font-semibold text-green-400">{stats?.verified_events || 0}</span>
-            </div>
-            <div className="flex items-center justify-between p-3 bg-dark-700/30 rounded-lg">
-              <span className="text-sm text-gray-400">Total Events</span>
-              <span className="text-sm font-semibold text-primary-400">{stats?.total_events || 0}</span>
-            </div>
-            <div className="flex items-center justify-between p-3 bg-dark-700/30 rounded-lg">
-              <span className="text-sm text-gray-400">Pending Review</span>
-              <span className="text-sm font-semibold text-yellow-400">{stats?.pending_review || 0}</span>
-            </div>
-          </div>
+          ) : (
+            <p className="text-sm text-gray-500">No source health data yet. Ingest reports to build trust scores.</p>
+          )}
         </div>
       </div>
 
-      <div>
+      <section aria-label="Recent Events">
         <h3 className="text-sm font-semibold text-white mb-3">Recent Events</h3>
         <EventTable events={events.slice(0, 10)} loading={loading} />
-      </div>
+      </section>
     </div>
   );
 }

@@ -150,6 +150,17 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     return R * c
 
 
+def is_within_radius(
+    event_lat: float,
+    event_lng: float,
+    user_lat: float,
+    user_lng: float,
+    radius_km: float,
+) -> bool:
+    """Pure trigger predicate for location-based weather alerts."""
+    return haversine_distance(event_lat, event_lng, user_lat, user_lng) <= radius_km
+
+
 def find_nearest_city(lat: float, lon: float, max_distance_km: float = 50) -> Optional[str]:
     nearest = None
     min_dist = float('inf')

@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CloudSun, Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react';
 import { api } from '../services/api.js';
+import { consumeReturnTo } from '../services/api.js';
+import { useAuth } from '../context/AuthContext.jsx';
 
 export default function Login() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { login } = useAuth();
   const [isRegister, setIsRegister] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -15,6 +19,16 @@ export default function Login() {
     password: '',
     full_name: '',
   });
+
+  const sessionExpired = searchParams.get('auto') === 'expired';
+
+  // Resume the action the user originally attempted, otherwise land on the
+  // dashboard. This keeps the site useful while still requiring a session
+  // for actions like reporting or verifying.
+  const redirectAfterLogin = () => {
+    const returnTo = consumeReturnTo() || searchParams.get('return');
+    navigate(returnTo && returnTo.startsWith('/') ? returnTo : '/dashboard', { replace: true });
+  };
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -36,9 +50,8 @@ export default function Login() {
       });
 
       const { access_token, user } = response.data;
-      localStorage.setItem('token', access_token);
-      localStorage.setItem('user', JSON.stringify(user));
-      navigate('/');
+      login(access_token, user);
+      redirectAfterLogin();
     } catch (err) {
       setError(err.response?.data?.detail || 'Login failed. Please check your credentials.');
     }
@@ -67,9 +80,8 @@ export default function Login() {
       });
 
       const { access_token, user } = loginResponse.data;
-      localStorage.setItem('token', access_token);
-      localStorage.setItem('user', JSON.stringify(user));
-      navigate('/');
+      login(access_token, user);
+      redirectAfterLogin();
     } catch (err) {
       setError(err.response?.data?.detail || 'Registration failed. Please try again.');
     }
@@ -117,6 +129,13 @@ export default function Login() {
             <div className="flex items-center gap-2 p-3 mb-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
               {error}
+            </div>
+          )}
+
+          {sessionExpired && !error && (
+            <div className="flex items-center gap-2 p-3 mb-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-yellow-300 text-sm">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              Your session expired. Sign in again to continue where you left off.
             </div>
           )}
 
@@ -179,6 +198,7 @@ export default function Login() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -203,7 +223,7 @@ export default function Login() {
 
           <div className="mt-6 pt-4 border-t border-dark-700/30">
             <p className="text-xs text-gray-500 text-center">
-              Demo: Use any username/password to login, or register a new account.
+              Browse weather data as a guest, or sign in to report and verify events.
             </p>
           </div>
         </div>

@@ -18,4 +18,7 @@ COPY --from=frontend-build /frontend/dist /frontend/dist
 
 RUN mkdir -p /app/uploads
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Alembic migrations are idempotent (IF NOT EXISTS) so this is safe on both
+# fresh and pre-existing databases. Citizen evidence is now stored in
+# Postgres (report_media), so the uploads volume is kept only for legacy files.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

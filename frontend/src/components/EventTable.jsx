@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import dayjs from 'dayjs';
 import clsx from 'clsx';
-import { ChevronUp, ChevronDown, ExternalLink, CheckCircle, XCircle, Clock, AlertTriangle } from 'lucide-react';
+import { ChevronUp, ChevronDown, ExternalLink, CheckCircle, XCircle, Clock, AlertTriangle, User, Shield, AtSign, Image, Loader2, Check } from 'lucide-react';
 
 const SEVERITY_STYLES = {
   low: 'badge-low',
@@ -35,14 +35,141 @@ const COLUMNS = [
   { key: 'reported_at', label: 'Reported', sortable: true, width: 'w-[12%]' },
 ];
 
-export default function EventTable({ events = [], onVerify, loading }) {
+function MediaEvidence({ event }) {
+  const [items, setItems] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    const media = (event.media || []).filter((m) => m.id != null);
+    if (!media.length) {
+      setLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      media.map(async (m) => {
+        try {
+          const res = await fetch(m.url);
+          if (res.ok) {
+            const blob = await res.blob();
+            return { ...m, objectUrl: URL.createObjectURL(blob) };
+          }
+          return { ...m, failed: true };
+        } catch {
+          return { ...m, failed: true };
+        }
+      })
+    ).then((results) => {
+      if (cancelled) return;
+      setItems(results.filter(Boolean));
+      setLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+      items.forEach((m) => { if (m.objectUrl) URL.revokeObjectURL(m.objectUrl); });
+    };
+  }, [event]);
+
+  return (
+    <div className="mt-4">
+      <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Media evidence</h4>
+      {!loaded ? (
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Loading evidence...
+        </div>
+      ) : items.length === 0 ? (
+        <p className="text-xs text-gray-500">No media attached.</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {items.map((m) =>
+            m.failed ? (
+              <div
+                key={m.id}
+                className="h-28 w-40 rounded-lg border border-dark-600 bg-dark-900/60 flex flex-col items-center justify-center text-center p-2"
+              >
+                <Image className="h-6 w-6 text-gray-600 mb-1" />
+                <span className="text-[10px] text-gray-500 leading-tight">Evidence unavailable</span>
+              </div>
+            ) : m.kind === 'video' ? (
+              <video key={m.id} src={m.objectUrl} controls className="h-28 w-40 object-cover rounded-lg" />
+            ) : (
+              <img
+                key={m.id}
+                src={m.objectUrl}
+                alt="Weather evidence"
+                className="h-28 w-40 object-cover rounded-lg border border-dark-700"
+              />
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SourceBlock({ event }) {
+  const details = event.source_details || {};
+  const name = details.author_name || details.display;
+  const handle = details.handle;
+  return (
+    <div>
+      <h4 className="text-xs font-semibold text-gray-400 uppercase mb-1">Source</h4>
+      <dl className="text-sm space-y-1">
+        <div className="flex gap-2">
+          <dt className="text-gray-500 flex-shrink-0">Platform:</dt>
+          <dd className="text-gray-300">{details.platform || details.display || event.source}</dd>
+        </div>
+        {name && (
+          <div className="flex gap-2 items-center">
+            <AtSign className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+            <dd className="text-gray-300 capitalize">{name}</dd>
+          </div>
+        )}
+        {handle && (
+          <div className="flex gap-2 items-center">
+            <User className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+            <dd className="text-gray-300">@{handle}</dd>
+          </div>
+        )}
+        {details.followers != null && (
+          <div className="flex gap-2">
+            <dt className="text-gray-500 flex-shrink-0">Followers:</dt>
+            <dd className="text-gray-300">{details.followers.toLocaleString()}</dd>
+          </div>
+        )}
+        {event.reported_by_id && (
+          <div className="flex gap-2">
+            <dt className="text-gray-500 flex-shrink-0">Reporter:</dt>
+            <dd className="text-gray-300">{event.reported_by_name || `user #${event.reported_by_id}`}</dd>
+          </div>
+        )}
+        {event.verified_by_name && (
+          <div className="flex gap-2 items-center">
+            <Shield className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+            <dt className="text-gray-500 flex-shrink-0">Verified by:</dt>
+            <dd className="text-gray-300">{event.verified_by_name}</dd>
+          </div>
+        )}
+        {event.duplicate_of_id && (
+          <div className="flex gap-2">
+            <dt className="text-gray-500 flex-shrink-0">Duplicate of:</dt>
+            <dd className="text-gray-300">event #{event.duplicate_of_id}</dd>
+          </div>
+        )}
+      </dl>
+    </div>
+  );
+}
+
+export default function EventTable({ events = [], onVerify, onDelete, onViewIntelligence, onClassify, loading, selectable, selectedIds, onToggleSelect, onSelectAll }) {
   const [sortKey, setSortKey] = useState('reported_at');
   const [sortDir, setSortDir] = useState('desc');
   const [expandedRow, setExpandedRow] = useState(null);
 
   const handleSort = (key) => {
     if (sortKey === key) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortKey(key);
       setSortDir('desc');
@@ -86,6 +213,24 @@ export default function EventTable({ events = [], onVerify, loading }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-dark-700/50">
+              {selectable && (
+                <th className="px-4 py-3 w-10">
+                  <button
+                    onClick={onSelectAll}
+                    className={clsx(
+                      'w-5 h-5 rounded border flex items-center justify-center transition-colors',
+                      selectedIds?.size === events.length && events.length > 0
+                        ? 'bg-primary-500 border-primary-500'
+                        : 'border-dark-600 hover:border-gray-400'
+                    )}
+                    aria-label="Select all events"
+                  >
+                    {selectedIds?.size === events.length && events.length > 0 && (
+                      <Check className="w-3 h-3 text-white" />
+                    )}
+                  </button>
+                </th>
+              )}
               {COLUMNS.map((col) => (
                 <th
                   key={col.key}
@@ -108,39 +253,59 @@ export default function EventTable({ events = [], onVerify, loading }) {
               return (
                 <React.Fragment key={event.id}>
                   <tr
-                    onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}
-                    className="hover:bg-dark-700/20 cursor-pointer transition-colors"
+                    className={clsx(
+                      'transition-colors',
+                      selectedIds?.has(event.id) ? 'bg-primary-500/10' : 'hover:bg-dark-700/20',
+                      'cursor-pointer'
+                    )}
                   >
-                    <td className="px-4 py-3 max-w-xs">
+                    {selectable && (
+                      <td className="px-4 py-3 w-10" onClick={(e) => { e.stopPropagation(); onToggleSelect?.(event.id); }}>
+                        <button
+                          className={clsx(
+                            'w-5 h-5 rounded border flex items-center justify-center transition-colors',
+                            selectedIds?.has(event.id)
+                              ? 'bg-primary-500 border-primary-500'
+                              : 'border-dark-600 hover:border-gray-400'
+                          )}
+                          aria-label={`Select event: ${event.title}`}
+                        >
+                          {selectedIds?.has(event.id) && (
+                            <Check className="w-3 h-3 text-white" />
+                          )}
+                        </button>
+                      </td>
+                    )}
+                    <td className="px-4 py-3 max-w-xs" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>
                       <p className="font-medium text-white truncate">{event.title}</p>
                       <p className="text-xs text-gray-500 truncate mt-0.5">{event.description?.slice(0, 80)}...</p>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>
                       <span className="capitalize text-gray-300">{event.event_type?.replace('_', ' ')}</span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>
                       <span className={clsx('badge', SEVERITY_STYLES[event.severity])}>
                         {event.severity}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-300">{event.city || '-'}</td>
-                    <td className="px-4 py-3 text-gray-300">{event.state || '-'}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 text-gray-300" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>{event.city || '-'}</td>
+                    <td className="px-4 py-3 text-gray-300" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>{event.state || '-'}</td>
+                    <td className="px-4 py-3" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>
                       <span className="capitalize text-gray-400">{event.source?.replace('_', ' ')}</span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>
                       <span className={clsx('badge inline-flex items-center gap-1', STATUS_STYLES[event.verification_status])}>
                         <StatusIcon className="w-3 h-3" />
                         {event.verification_status?.replace('_', ' ')}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
+                    <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>
                       {dayjs(event.reported_at).format('DD MMM, HH:mm')}
                     </td>
                   </tr>
                   {expandedRow === event.id && (
                     <tr className="bg-dark-800/40">
-                      <td colSpan={8} className="px-6 py-4">
+                      <td colSpan={selectable ? 9 : 8} className="px-6 py-4">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
                             <h4 className="text-xs font-semibold text-gray-400 uppercase mb-1">Description</h4>
@@ -151,7 +316,11 @@ export default function EventTable({ events = [], onVerify, loading }) {
                             <dl className="text-sm space-y-1">
                               <div className="flex gap-2">
                                 <dt className="text-gray-500">Coordinates:</dt>
-                                <dd className="text-gray-300">{event.latitude?.toFixed(4)}, {event.longitude?.toFixed(4)}</dd>
+                                <dd className="text-gray-300">
+                                  {event.latitude != null && event.longitude != null
+                                    ? `${event.latitude.toFixed(4)}, ${event.longitude.toFixed(4)}`
+                                    : 'Not available'}
+                                </dd>
                               </div>
                               <div className="flex gap-2">
                                 <dt className="text-gray-500">Fake Score:</dt>
@@ -161,40 +330,72 @@ export default function EventTable({ events = [], onVerify, loading }) {
                                 <dt className="text-gray-500">Category Conf:</dt>
                                 <dd className="text-gray-300">{(event.category_confidence * 100).toFixed(1)}%</dd>
                               </div>
+                              <div className="flex gap-2">
+                                <dt className="text-gray-500">Reported:</dt>
+                                <dd className="text-gray-300">{dayjs(event.reported_at).format('DD MMM YYYY, HH:mm')}</dd>
+                              </div>
                             </dl>
                           </div>
-                          <div>
-                            <h4 className="text-xs font-semibold text-gray-400 uppercase mb-1">Actions</h4>
-                            <div className="flex gap-2 flex-wrap">
-                              {event.source_url && (
-                                <a
-                                  href={event.source_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="btn-secondary text-xs inline-flex items-center gap-1"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <ExternalLink className="w-3 h-3" /> Source
-                                </a>
-                              )}
-                              {onVerify && event.verification_status === 'pending' && (
-                                <>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); onVerify(event.id, 'verified'); }}
-                                    className="btn-primary text-xs inline-flex items-center gap-1"
-                                  >
-                                    <CheckCircle className="w-3 h-3" /> Verify
-                                  </button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); onVerify(event.id, 'rejected'); }}
-                                    className="btn-danger text-xs inline-flex items-center gap-1"
-                                  >
-                                    <XCircle className="w-3 h-3" /> Reject
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </div>
+                          <SourceBlock event={event} />
+                        </div>
+
+                        <MediaEvidence event={event} />
+
+                        <div className="flex gap-2 flex-wrap mt-4">
+                          {event.source_url && (
+                            <a
+                              href={event.source_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn-secondary text-xs inline-flex items-center gap-1"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <ExternalLink className="w-3 h-3" /> Source post
+                            </a>
+                          )}
+                          {onVerify && event.verification_status === 'pending' && (
+                            <>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); onVerify(event.id, 'verified'); }}
+                                className="btn-primary text-xs inline-flex items-center gap-1"
+                              >
+                                <CheckCircle className="w-3 h-3" /> Verify
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); onVerify(event.id, 'rejected'); }}
+                                className="btn-danger text-xs inline-flex items-center gap-1"
+                              >
+                                <XCircle className="w-3 h-3" /> Reject
+                              </button>
+                            </>
+                          )}
+                          {onViewIntelligence && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onViewIntelligence(event.id); }}
+                              className="btn-secondary text-xs inline-flex items-center gap-1"
+                              aria-label={`View AI intelligence for: ${event.title}`}
+                            >
+                              <Shield className="w-3 h-3" /> AI Intelligence
+                            </button>
+                          )}
+                          {onClassify && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onClassify(event); }}
+                              className="btn-secondary text-xs inline-flex items-center gap-1"
+                              aria-label={`Override AI classification for: ${event.title}`}
+                            >
+                              <Shield className="w-3 h-3" /> AI Classify
+                            </button>
+                          )}
+                          {onDelete && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onDelete(event.id); }}
+                              className="btn-danger text-xs inline-flex items-center gap-1"
+                              aria-label={`Delete weather event: ${event.title}`}
+                            >
+                              <XCircle className="w-3 h-3" /> Delete
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import List
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +11,24 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     API_PREFIX: str = "/api"
     DEBUG: bool = False
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug_mode(cls, value):
+        """Accept deployment labels injected by common hosting environments.
+
+        A hosting environment currently supplies ``DEBUG=release``. Pydantic's
+        boolean parser rejects that string before the app or Alembic can start.
+        Production/release labels deliberately map to ``False``; conventional
+        true/false values keep Pydantic's standard parsing behavior.
+        """
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"release", "production", "prod"}:
+                return False
+            if normalized in {"development", "dev"}:
+                return True
+        return value
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/weather_platform"
