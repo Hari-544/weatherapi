@@ -18,7 +18,8 @@
     "axios": "^1.6.2",
     "dayjs": "^1.11.10",
     "lucide-react": "^0.294.0",
-    "clsx": "^2.0.0"
+    "clsx": "^2.0.0",
+    "three": "^r128"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",
