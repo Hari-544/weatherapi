@@ -119,12 +119,17 @@ async def list_events(
     end_date: Optional[datetime] = None,
     is_fake: Optional[bool] = None,
     search: Optional[str] = None,
+    include_duplicates: bool = Query(False, description="Include duplicate events in results"),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(WeatherEvent).options(
         selectinload(WeatherEvent.reported_by),
         selectinload(WeatherEvent.verified_by),
     )
+
+    # By default, exclude duplicates (events that have duplicate_of_id set)
+    if not include_duplicates:
+        query = query.where(WeatherEvent.duplicate_of_id.is_(None))
 
     if event_type:
         query = query.where(WeatherEvent.event_type == event_type)

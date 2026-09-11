@@ -8,8 +8,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import weather, auth, dashboard, ingest, media, notifications, intelligence
-
+from app.api import weather, auth, dashboard, ingest, media, notifications
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -44,7 +43,6 @@ app.include_router(media.router, prefix="/api/media", tags=["Report Media"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard & Analytics"])
 app.include_router(ingest.router, prefix="/api/ingest", tags=["Data Ingestion"])
-app.include_router(intelligence.router, prefix="/api/intelligence", tags=["Intelligence & Explainability"])
 
 
 @app.get("/health", tags=["Health"])

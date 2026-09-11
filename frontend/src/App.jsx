@@ -5,7 +5,6 @@ import Dashboard from './pages/Dashboard.jsx';
 import Events from './pages/Events.jsx';
 import Analytics from './pages/Analytics.jsx';
 import AdminPanel from './pages/AdminPanel.jsx';
-import IncidentIntelligence from './pages/IncidentIntelligence.jsx';
 import Login from './pages/Login.jsx';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 
@@ -28,9 +27,12 @@ function AdminRoute({ children }) {
   if (user?.role !== 'admin') {
     return (
       <div className="space-y-4 p-6">
-        <h1 className="text-2xl font-bold text-white">Administrator access required</h1>
+        <h1 className="text-2xl font-bold text-white">
+          Administrator access required
+        </h1>
         <p className="text-sm text-gray-400">
-          The admin panel is restricted to administrators. Your current role is "{user?.role}".
+          The admin panel is restricted to administrators. Your current role is "
+          {user?.role}".
         </p>
       </div>
     );
@@ -50,7 +52,9 @@ function AppRoutes() {
           </Layout>
         }
       />
+
       <Route path="/login" element={<Login />} />
+
       <Route
         path="/dashboard"
         element={
@@ -59,6 +63,7 @@ function AppRoutes() {
           </Layout>
         }
       />
+
       <Route
         path="/events"
         element={
@@ -67,6 +72,7 @@ function AppRoutes() {
           </Layout>
         }
       />
+
       <Route
         path="/analytics"
         element={
@@ -75,6 +81,7 @@ function AppRoutes() {
           </Layout>
         }
       />
+
       <Route
         path="/admin"
         element={
@@ -85,14 +92,7 @@ function AppRoutes() {
           </AdminRoute>
         }
       />
-      <Route
-        path="/events/:eventId/intelligence"
-        element={
-          <Layout>
-            <IncidentIntelligence />
-          </Layout>
-        }
-      />
+
       {/* Legacy home path redirects into the public platform. */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
