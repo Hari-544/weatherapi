@@ -1,25 +1,47 @@
 import logging
-from typing import Optional, List, Dict
+from typing import Optional, List
 from datetime import datetime
+
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.weather_event import (
-    WeatherEvent, EventType, SeverityLevel,
-    EventSource, VerificationStatus
+    WeatherEvent,
+    EventType,
+    SeverityLevel,
+    EventSource,
+    VerificationStatus,
 )
 from app.ml.categorizer import Categorizer
 from app.ml.fake_detector import FakeDetector
 from app.ml.deduplicator import Deduplicator
-from app.ml.classifier_engine import classifier_engine
-from app.ml.severity_engine import severity_engine
 from app.services.notification_service import notify_affected_citizens
-from app.services.intelligence_service import intelligence_service
 
 logger = logging.getLogger(__name__)
 
 
 class WeatherService:
+    """
+    Core weather event processing service.
+
+    Pipeline:
+        Ingestion
+          ↓
+        Weather classification
+          ↓
+        Fake/misleading detection
+          ↓
+        Severity detection
+          ↓
+        Duplicate detection
+          ↓
+        Database
+          ↓
+        Citizen notification
+
+    The separate AI Intelligence pipeline is intentionally not used here.
+    """
+
     def __init__(self):
         self.categorizer = Categorizer()
         self.fake_detector = FakeDetector()
@@ -43,21 +65,37 @@ class WeatherService:
         reported_by_id: Optional[int] = None,
         reported_at: Optional[datetime] = None,
     ) -> WeatherEvent:
-        category_label, confidence = self.categorizer.categorize(title, description)
+
+        # ---------------------------------------------------------
+        # 1. WEATHER EVENT CLASSIFICATION
+        # ---------------------------------------------------------
+        category_label, confidence = self.categorizer.categorize(
+            title,
+            description,
+        )
+
         event_type = category_label or EventType.OTHER
 
-        classification_result = classifier_engine.classify(title, description)
-        if classification_result.category and classification_result.confidence >= confidence:
-            event_type = classification_result.category
-            confidence = classification_result.confidence
+        # ---------------------------------------------------------
+        # 2. FAKE / MISLEADING REPORT DETECTION
+        # ---------------------------------------------------------
+        is_fake, fake_confidence = self.fake_detector.predict(
+            title,
+            description,
+        )
 
-        is_fake, fake_confidence = self.fake_detector.predict(title, description)
+        # ---------------------------------------------------------
+        # 3. SEVERITY
+        # ---------------------------------------------------------
+        severity = self._determine_severity(
+            title,
+            description,
+            event_type,
+        )
 
-        severity = self._determine_severity(title, description, event_type)
-        severity_result = severity_engine.determine(title, description, event_type, city or "")
-        if severity_result[1] >= 0.8:
-            severity = severity_result[0]
-
+        # ---------------------------------------------------------
+        # 4. CREATE EVENT
+        # ---------------------------------------------------------
         event = WeatherEvent(
             title=title,
             description=description,
@@ -81,87 +119,161 @@ class WeatherService:
             reported_at=reported_at or datetime.utcnow(),
         )
 
-        duplicate = await self.deduplicator.find_duplicate(db, event)
+        # ---------------------------------------------------------
+        # 5. DUPLICATE DETECTION
+        # ---------------------------------------------------------
+        duplicate = await self.deduplicator.find_duplicate(
+            db,
+            event,
+        )
+
         if duplicate:
             event.duplicate_of_id = duplicate.id
 
+        # ---------------------------------------------------------
+        # 6. SAVE EVENT
+        # ---------------------------------------------------------
         db.add(event)
         await db.commit()
         await db.refresh(event)
 
-        try:
-            await intelligence_service.process_event(db, event)
-            if event.verification_status == VerificationStatus.PENDING:
-                intelligence = (event.metadata_ or {}).get("intelligence", {}) if isinstance(event.metadata_, dict) else {}
-                v = intelligence.get("verification", {})
-                status_map = {
-                    "VERIFIED": VerificationStatus.VERIFIED,
-                    "REJECTED": VerificationStatus.REJECTED,
-                    "NEEDS_REVIEW": VerificationStatus.NEEDS_REVIEW,
-                    "PROBABLE": VerificationStatus.PENDING,
-                    "UNVERIFIED": VerificationStatus.PENDING,
-                }
-                auto = status_map.get(v.get("status"))
-                if auto:
-                    event.verification_status = auto
-            await db.commit()
-            await db.refresh(event)
-        except Exception as exc:
-            logger.warning("Intelligence pipeline failed for event %s: %s", getattr(event, "id", "?"), exc)
-            await db.rollback()
-
+        # ---------------------------------------------------------
+        # 7. CITIZEN NOTIFICATIONS
+        # ---------------------------------------------------------
         try:
             await notify_affected_citizens(db, event)
         except Exception as exc:
-            logger.warning("Location-based notification failed for event %s: %s", getattr(event, "id", "?"), exc)
+            logger.warning(
+                "Location-based notification failed for event %s: %s",
+                getattr(event, "id", "?"),
+                exc,
+            )
 
         return event
 
-    def _determine_severity(self, title: str, description: str, event_type: EventType) -> SeverityLevel:
+    def _determine_severity(
+        self,
+        title: str,
+        description: str,
+        event_type: EventType,
+    ) -> SeverityLevel:
+
         text = f"{title} {description}".lower()
 
         critical_keywords = [
-            "severe", "extreme", "catastrophic", "disaster", "massive",
-            "emergency", "evacuation", "devastating", "worst", "historic",
-            "death", "kill", "destroy", "submerge", "catastrophic"
+            "severe",
+            "extreme",
+            "catastrophic",
+            "disaster",
+            "massive",
+            "emergency",
+            "evacuation",
+            "devastating",
+            "worst",
+            "historic",
+            "death",
+            "kill",
+            "destroy",
+            "submerge",
         ]
+
         high_keywords = [
-            "heavy", "intense", "flooding", "cyclone", "storm surge",
-            "landfall", "major", "significant", "warning", "red alert",
-            "dangerous", "threatening", "severe"
+            "heavy",
+            "intense",
+            "flooding",
+            "cyclone",
+            "storm surge",
+            "landfall",
+            "major",
+            "significant",
+            "warning",
+            "red alert",
+            "dangerous",
+            "threatening",
         ]
+
         moderate_keywords = [
-            "moderate", "warning", "advisory", "watch", "affected",
-            "damage", "disrupt", "impact", "heavy rain", "strong wind"
+            "moderate",
+            "advisory",
+            "watch",
+            "affected",
+            "damage",
+            "disrupt",
+            "impact",
+            "heavy rain",
+            "strong wind",
         ]
 
         if any(kw in text for kw in critical_keywords):
             return SeverityLevel.CRITICAL
+
         if any(kw in text for kw in high_keywords):
             return SeverityLevel.HIGH
+
         if any(kw in text for kw in moderate_keywords):
             return SeverityLevel.MODERATE
+
         return SeverityLevel.LOW
 
-    async def get_event_stats(self, db: AsyncSession) -> dict:
-        total = (await db.execute(select(func.count()).select_from(WeatherEvent))).scalar() or 0
-        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        today_count = (await db.execute(
-            select(func.count()).select_from(WeatherEvent).where(WeatherEvent.reported_at >= today)
-        )).scalar() or 0
-        verified = (await db.execute(
-            select(func.count()).select_from(WeatherEvent).where(
-                WeatherEvent.verification_status == VerificationStatus.VERIFIED
+    async def get_event_stats(
+        self,
+        db: AsyncSession,
+    ) -> dict:
+
+        total = (
+            await db.execute(
+                select(func.count()).select_from(WeatherEvent)
             )
-        )).scalar() or 0
-        pending = (await db.execute(
-            select(func.count()).select_from(WeatherEvent).where(
-                WeatherEvent.verification_status == VerificationStatus.PENDING
+        ).scalar() or 0
+
+        today = datetime.utcnow().replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+
+        today_count = (
+            await db.execute(
+                select(func.count())
+                .select_from(WeatherEvent)
+                .where(
+                    WeatherEvent.reported_at >= today
+                )
             )
-        )).scalar() or 0
-        fake = (await db.execute(
-            select(func.count()).select_from(WeatherEvent).where(WeatherEvent.is_fake == True)
-        )).scalar() or 0
+        ).scalar() or 0
+
+        verified = (
+            await db.execute(
+                select(func.count())
+                .select_from(WeatherEvent)
+                .where(
+                    WeatherEvent.verification_status
+                    == VerificationStatus.VERIFIED
+                )
+            )
+        ).scalar() or 0
+
+        pending = (
+            await db.execute(
+                select(func.count())
+                .select_from(WeatherEvent)
+                .where(
+                    WeatherEvent.verification_status
+                    == VerificationStatus.PENDING
+                )
+            )
+        ).scalar() or 0
+
+        fake = (
+            await db.execute(
+                select(func.count())
+                .select_from(WeatherEvent)
+                .where(
+                    WeatherEvent.is_fake == True
+                )
+            )
+        ).scalar() or 0
 
         return {
             "total_events": total,
@@ -169,7 +281,9 @@ class WeatherService:
             "verified_events": verified,
             "pending_review": pending,
             "detected_fake": fake,
-            "verification_rate": (verified / total * 100) if total > 0 else 0,
+            "verification_rate": (
+                verified / total * 100
+            ) if total > 0 else 0,
         }
 
 

@@ -1,107 +1,132 @@
-import React, { useState, useEffect } from 'react';
-import dayjs from 'dayjs';
-import clsx from 'clsx';
-import { ChevronUp, ChevronDown, ExternalLink, CheckCircle, XCircle, Clock, AlertTriangle, User, Shield, AtSign, Image, Loader2, Check } from 'lucide-react';
-
-const SEVERITY_STYLES = {
-  low: 'badge-low',
-  moderate: 'badge-moderate',
-  high: 'badge-high',
-  critical: 'badge-critical',
-};
-
-const STATUS_ICONS = {
-  pending: Clock,
-  verified: CheckCircle,
-  rejected: XCircle,
-  needs_review: AlertTriangle,
-};
-
-const STATUS_STYLES = {
-  pending: 'badge-pending',
-  verified: 'badge-verified',
-  rejected: 'badge-rejected',
-  needs_review: 'badge-moderate',
-};
-
-const COLUMNS = [
-  { key: 'title', label: 'Event', sortable: true, width: 'w-[30%]' },
-  { key: 'event_type', label: 'Type', sortable: true, width: 'w-[12%]' },
-  { key: 'severity', label: 'Severity', sortable: true, width: 'w-[10%]' },
-  { key: 'city', label: 'City', sortable: true, width: 'w-[12%]' },
-  { key: 'state', label: 'State', sortable: true, width: 'w-[12%]' },
-  { key: 'source', label: 'Source', sortable: true, width: 'w-[10%]' },
-  { key: 'verification_status', label: 'Status', sortable: true, width: 'w-[12%]' },
-  { key: 'reported_at', label: 'Reported', sortable: true, width: 'w-[12%]' },
-];
+import React, { useEffect, useState } from "react";
+import dayjs from "dayjs";
+import clsx from "clsx";
+import {
+  ChevronDown,
+  ChevronUp,
+  CheckCircle,
+  XCircle,
+  Trash2,
+  Shield,
+  Image as ImageIcon,
+  Loader2,
+  ExternalLink,
+} from "lucide-react";
+import { api, getToken } from "../services/api.js";
 
 function MediaEvidence({ event }) {
   const [items, setItems] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const media = (event.media || []).filter((m) => m.id != null);
+    const media = event.media || [];
+
     if (!media.length) {
       setLoaded(true);
       return;
     }
+
     let cancelled = false;
-    Promise.all(
-      media.map(async (m) => {
-        try {
-          const res = await fetch(m.url);
-          if (res.ok) {
-            const blob = await res.blob();
-            return { ...m, objectUrl: URL.createObjectURL(blob) };
+
+    const fetchMedia = async () => {
+      const token = getToken();
+      const headers = {};
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const results = await Promise.all(
+        media.map(async (m) => {
+          try {
+            const res = await fetch(m.url, { headers });
+
+            if (res.ok) {
+              const blob = await res.blob();
+
+              return {
+                ...m,
+                objectUrl: URL.createObjectURL(blob),
+              };
+            }
+
+            return {
+              ...m,
+              failed: true,
+            };
+          } catch {
+            return {
+              ...m,
+              failed: true,
+            };
           }
-          return { ...m, failed: true };
-        } catch {
-          return { ...m, failed: true };
-        }
-      })
-    ).then((results) => {
+        })
+      );
+
       if (cancelled) return;
+
       setItems(results.filter(Boolean));
       setLoaded(true);
-    });
+    };
+
+    fetchMedia();
+
     return () => {
       cancelled = true;
-      items.forEach((m) => { if (m.objectUrl) URL.revokeObjectURL(m.objectUrl); });
     };
   }, [event]);
 
+  useEffect(() => {
+    return () => {
+      items.forEach((m) => {
+        if (m.objectUrl) {
+          URL.revokeObjectURL(m.objectUrl);
+        }
+      });
+    };
+  }, [items]);
+
   return (
     <div className="mt-4">
-      <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Media evidence</h4>
+      <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
+        <ImageIcon className="h-4 w-4" />
+        Media Evidence
+      </h4>
+
       {!loaded ? (
-        <div className="flex items-center gap-2 text-xs text-gray-500">
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          Loading evidence...
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading media...
         </div>
       ) : items.length === 0 ? (
-        <p className="text-xs text-gray-500">No media attached.</p>
+        <div className="text-sm text-gray-500 dark:text-gray-400">
+          No media evidence attached.
+        </div>
       ) : (
-        <div className="flex flex-wrap gap-2">
-          {items.map((m) =>
-            m.failed ? (
-              <div
-                key={m.id}
-                className="h-28 w-40 rounded-lg border border-dark-600 bg-dark-900/60 flex flex-col items-center justify-center text-center p-2"
-              >
-                <Image className="h-6 w-6 text-gray-600 mb-1" />
-                <span className="text-[10px] text-gray-500 leading-tight">Evidence unavailable</span>
-              </div>
-            ) : m.kind === 'video' ? (
-              <video key={m.id} src={m.objectUrl} controls className="h-28 w-40 object-cover rounded-lg" />
-            ) : (
-              <img
-                key={m.id}
-                src={m.objectUrl}
-                alt="Weather evidence"
-                className="h-28 w-40 object-cover rounded-lg border border-dark-700"
-              />
-            )
-          )}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {items.map((m, index) => (
+            <div
+              key={m.id ?? index}
+              className="overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900"
+            >
+              {m.failed ? (
+                <div className="flex h-40 items-center justify-center text-sm text-gray-500">
+                  Media unavailable
+                </div>
+              ) : m.kind === "video" ? (
+                <video
+                  src={m.objectUrl}
+                  controls
+                  className="h-48 w-full object-cover"
+                />
+              ) : (
+                <img
+                  src={m.objectUrl}
+                  alt={m.filename || "Weather evidence"}
+                  className="h-48 w-full object-cover"
+                />
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -109,293 +134,388 @@ function MediaEvidence({ event }) {
 }
 
 function SourceBlock({ event }) {
-  const details = event.source_details || {};
-  const name = details.author_name || details.display;
-  const handle = details.handle;
   return (
-    <div>
-      <h4 className="text-xs font-semibold text-gray-400 uppercase mb-1">Source</h4>
-      <dl className="text-sm space-y-1">
-        <div className="flex gap-2">
-          <dt className="text-gray-500 flex-shrink-0">Platform:</dt>
-          <dd className="text-gray-300">{details.platform || details.display || event.source}</dd>
+    <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+            Source
+          </div>
+
+          <div className="mt-1 text-sm font-medium text-gray-900 dark:text-white">
+            {event.source || "Unknown source"}
+          </div>
         </div>
-        {name && (
-          <div className="flex gap-2 items-center">
-            <AtSign className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
-            <dd className="text-gray-300 capitalize">{name}</dd>
+
+        {event.verification_status && (
+          <div
+            className={clsx(
+              "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold",
+              event.verification_status === "verified"
+                ? "bg-green-100 text-green-700"
+                : event.verification_status === "rejected"
+                ? "bg-red-100 text-red-700"
+                : "bg-yellow-100 text-yellow-700"
+            )}
+          >
+            <Shield className="h-3.5 w-3.5" />
+
+            {String(event.verification_status).replaceAll("_", " ")}
           </div>
         )}
-        {handle && (
-          <div className="flex gap-2 items-center">
-            <User className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
-            <dd className="text-gray-300">@{handle}</dd>
-          </div>
-        )}
-        {details.followers != null && (
-          <div className="flex gap-2">
-            <dt className="text-gray-500 flex-shrink-0">Followers:</dt>
-            <dd className="text-gray-300">{details.followers.toLocaleString()}</dd>
-          </div>
-        )}
-        {event.reported_by_id && (
-          <div className="flex gap-2">
-            <dt className="text-gray-500 flex-shrink-0">Reporter:</dt>
-            <dd className="text-gray-300">{event.reported_by_name || `user #${event.reported_by_id}`}</dd>
-          </div>
-        )}
-        {event.verified_by_name && (
-          <div className="flex gap-2 items-center">
-            <Shield className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
-            <dt className="text-gray-500 flex-shrink-0">Verified by:</dt>
-            <dd className="text-gray-300">{event.verified_by_name}</dd>
-          </div>
-        )}
-        {event.duplicate_of_id && (
-          <div className="flex gap-2">
-            <dt className="text-gray-500 flex-shrink-0">Duplicate of:</dt>
-            <dd className="text-gray-300">event #{event.duplicate_of_id}</dd>
-          </div>
-        )}
-      </dl>
+      </div>
+
+      {event.source_url && (
+        <a
+          href={event.source_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
+        >
+          View Original Source
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      )}
+
+      {event.duplicate_of_id && (
+        <div className="mt-3 rounded-md bg-yellow-50 p-3 text-sm text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300">
+          This report is a duplicate of event #{event.duplicate_of_id}.
+        </div>
+      )}
     </div>
   );
 }
 
-export default function EventTable({ events = [], onVerify, onDelete, onViewIntelligence, onClassify, loading, selectable, selectedIds, onToggleSelect, onSelectAll }) {
-  const [sortKey, setSortKey] = useState('reported_at');
-  const [sortDir, setSortDir] = useState('desc');
-  const [expandedRow, setExpandedRow] = useState(null);
+function ConfidenceBadge({ value, label }) {
+  if (value == null) return null;
 
-  const handleSort = (key) => {
-    if (sortKey === key) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortKey(key);
-      setSortDir('desc');
-    }
-  };
+  const percentage = Math.round(Number(value) * 100);
 
-  const sorted = [...events].sort((a, b) => {
-    let aVal = a[sortKey];
-    let bVal = b[sortKey];
-    if (aVal == null) aVal = '';
-    if (bVal == null) bVal = '';
-    if (typeof aVal === 'string') aVal = aVal.toLowerCase();
-    if (typeof bVal === 'string') bVal = bVal.toLowerCase();
-    if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
-    if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
-    return 0;
-  });
+  let className =
+    "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
 
-  const renderSortIcon = (key) => {
-    if (sortKey !== key) return null;
-    return sortDir === 'asc'
-      ? <ChevronUp className="w-3.5 h-3.5 inline ml-1" />
-      : <ChevronDown className="w-3.5 h-3.5 inline ml-1" />;
+  if (percentage >= 80) {
+    className = "bg-green-100 text-green-700";
+  } else if (percentage >= 60) {
+    className = "bg-yellow-100 text-yellow-700";
+  } else {
+    className = "bg-red-100 text-red-700";
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-gray-500 dark:text-gray-400">{label}</span>
+
+      <span
+        className={clsx(
+          "rounded-full px-2 py-1 text-xs font-semibold",
+          className
+        )}
+      >
+        {percentage}%
+      </span>
+    </div>
+  );
+}
+
+export default function EventTable({
+  events = [],
+  onVerify,
+  onDelete,
+  loading,
+  selectable,
+  selectedIds = [],
+  onToggleSelect,
+  onSelectAll,
+}) {
+  const [expandedId, setExpandedId] = useState(null);
+
+  const allSelected =
+    events.length > 0 &&
+    events.every((event) => selectedIds.includes(event.id));
+
+  const toggleExpanded = (id) => {
+    setExpandedId((current) => (current === id ? null : id));
   };
 
   if (loading) {
     return (
-      <div className="card">
-        <div className="animate-pulse space-y-4">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-12 bg-dark-700/50 rounded-lg" />
-          ))}
+      <div className="flex min-h-[240px] items-center justify-center rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Loading weather events...
+        </div>
+      </div>
+    );
+  }
+
+  if (!events.length) {
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white p-10 text-center dark:border-gray-700 dark:bg-gray-800">
+        <div className="text-sm text-gray-500 dark:text-gray-400">
+          No weather events found.
         </div>
       </div>
     );
   }
 
   return (
-    <div className="card overflow-hidden p-0">
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-dark-700/50">
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <thead className="bg-gray-50 dark:bg-gray-900/50">
+            <tr>
               {selectable && (
-                <th className="px-4 py-3 w-10">
-                  <button
-                    onClick={onSelectAll}
-                    className={clsx(
-                      'w-5 h-5 rounded border flex items-center justify-center transition-colors',
-                      selectedIds?.size === events.length && events.length > 0
-                        ? 'bg-primary-500 border-primary-500'
-                        : 'border-dark-600 hover:border-gray-400'
-                    )}
-                    aria-label="Select all events"
-                  >
-                    {selectedIds?.size === events.length && events.length > 0 && (
-                      <Check className="w-3 h-3 text-white" />
-                    )}
-                  </button>
+                <th className="px-4 py-3 text-left">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={(e) => onSelectAll?.(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
                 </th>
               )}
-              {COLUMNS.map((col) => (
-                <th
-                  key={col.key}
-                  onClick={() => col.sortable && handleSort(col.key)}
-                  className={clsx(
-                    'px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider',
-                    col.sortable && 'cursor-pointer hover:text-gray-200 select-none',
-                    col.width
-                  )}
-                >
-                  {col.label}
-                  {renderSortIcon(col.key)}
-                </th>
-              ))}
+
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Event
+              </th>
+
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Location
+              </th>
+
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Category
+              </th>
+
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Severity
+              </th>
+
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Verification
+              </th>
+
+              <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Actions
+              </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-dark-700/30">
-            {sorted.map((event) => {
-              const StatusIcon = STATUS_ICONS[event.verification_status] || Clock;
+
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {events.map((event) => {
+              const expanded = expandedId === event.id;
+
               return (
                 <React.Fragment key={event.id}>
-                  <tr
-                    className={clsx(
-                      'transition-colors',
-                      selectedIds?.has(event.id) ? 'bg-primary-500/10' : 'hover:bg-dark-700/20',
-                      'cursor-pointer'
-                    )}
-                  >
+                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-900/40">
                     {selectable && (
-                      <td className="px-4 py-3 w-10" onClick={(e) => { e.stopPropagation(); onToggleSelect?.(event.id); }}>
-                        <button
-                          className={clsx(
-                            'w-5 h-5 rounded border flex items-center justify-center transition-colors',
-                            selectedIds?.has(event.id)
-                              ? 'bg-primary-500 border-primary-500'
-                              : 'border-dark-600 hover:border-gray-400'
-                          )}
-                          aria-label={`Select event: ${event.title}`}
-                        >
-                          {selectedIds?.has(event.id) && (
-                            <Check className="w-3 h-3 text-white" />
-                          )}
-                        </button>
+                      <td className="px-4 py-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(event.id)}
+                          onChange={() => onToggleSelect?.(event.id)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
                       </td>
                     )}
-                    <td className="px-4 py-3 max-w-xs" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>
-                      <p className="font-medium text-white truncate">{event.title}</p>
-                      <p className="text-xs text-gray-500 truncate mt-0.5">{event.description?.slice(0, 80)}...</p>
+
+                    <td className="max-w-md px-4 py-4">
+                      <button
+                        type="button"
+                        onClick={() => toggleExpanded(event.id)}
+                        className="flex items-start gap-2 text-left"
+                      >
+                        {expanded ? (
+                          <ChevronUp className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+                        ) : (
+                          <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+                        )}
+
+                        <div>
+                          <div className="font-medium text-gray-900 dark:text-white">
+                            {event.title || "Untitled event"}
+                          </div>
+
+                          <div className="mt-1 text-xs text-gray-500">
+                            {event.created_at
+                              ? dayjs(event.created_at).format(
+                                  "DD MMM YYYY, HH:mm"
+                                )
+                              : "Unknown time"}
+                          </div>
+                        </div>
+                      </button>
                     </td>
-                    <td className="px-4 py-3" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>
-                      <span className="capitalize text-gray-300">{event.event_type?.replace('_', ' ')}</span>
+
+                    <td className="px-4 py-4 text-sm text-gray-700 dark:text-gray-300">
+                      {[event.city, event.state]
+                        .filter(Boolean)
+                        .join(", ") || "Unknown"}
                     </td>
-                    <td className="px-4 py-3" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>
-                      <span className={clsx('badge', SEVERITY_STYLES[event.severity])}>
-                        {event.severity}
+
+                    <td className="px-4 py-4">
+                      <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold capitalize text-blue-700">
+                        {String(event.event_type || "other").replaceAll(
+                          "_",
+                          " "
+                        )}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-300" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>{event.city || '-'}</td>
-                    <td className="px-4 py-3 text-gray-300" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>{event.state || '-'}</td>
-                    <td className="px-4 py-3" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>
-                      <span className="capitalize text-gray-400">{event.source?.replace('_', ' ')}</span>
-                    </td>
-                    <td className="px-4 py-3" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>
-                      <span className={clsx('badge inline-flex items-center gap-1', STATUS_STYLES[event.verification_status])}>
-                        <StatusIcon className="w-3 h-3" />
-                        {event.verification_status?.replace('_', ' ')}
+
+                    <td className="px-4 py-4">
+                      <span
+                        className={clsx(
+                          "rounded-full px-2.5 py-1 text-xs font-semibold capitalize",
+                          event.severity === "critical"
+                            ? "bg-red-100 text-red-700"
+                            : event.severity === "high"
+                            ? "bg-orange-100 text-orange-700"
+                            : event.severity === "moderate"
+                            ? "bg-yellow-100 text-yellow-700"
+                            : "bg-gray-100 text-gray-700"
+                        )}
+                      >
+                        {event.severity || "low"}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap" onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}>
-                      {dayjs(event.reported_at).format('DD MMM, HH:mm')}
+
+                    <td className="px-4 py-4">
+                      <span
+                        className={clsx(
+                          "rounded-full px-2.5 py-1 text-xs font-semibold capitalize",
+                          event.verification_status === "verified"
+                            ? "bg-green-100 text-green-700"
+                            : event.verification_status === "rejected"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-yellow-100 text-yellow-700"
+                        )}
+                      >
+                        {String(
+                          event.verification_status || "unverified"
+                        ).replaceAll("_", " ")}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-4">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleExpanded(event.id)}
+                          className="rounded-lg border border-gray-200 p-2 text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700"
+                          title="View details"
+                        >
+                          {expanded ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          )}
+                        </button>
+
+                        {onVerify && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => onVerify(event.id, "verified")}
+                              className="rounded-lg p-2 text-green-600 hover:bg-green-50"
+                              title="Verify event"
+                            >
+                              <CheckCircle className="h-4 w-4" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => onVerify(event.id, "rejected")}
+                              className="rounded-lg p-2 text-red-600 hover:bg-red-50"
+                              title="Reject event"
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </button>
+                          </>
+                        )}
+
+                        {onDelete && (
+                          <button
+                            type="button"
+                            onClick={() => onDelete(event.id)}
+                            className="rounded-lg p-2 text-gray-500 hover:bg-red-50 hover:text-red-600"
+                            title="Delete event"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
-                  {expandedRow === event.id && (
-                    <tr className="bg-dark-800/40">
-                      <td colSpan={selectable ? 9 : 8} className="px-6 py-4">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div>
-                            <h4 className="text-xs font-semibold text-gray-400 uppercase mb-1">Description</h4>
-                            <p className="text-sm text-gray-300">{event.description}</p>
-                          </div>
-                          <div>
-                            <h4 className="text-xs font-semibold text-gray-400 uppercase mb-1">Details</h4>
-                            <dl className="text-sm space-y-1">
-                              <div className="flex gap-2">
-                                <dt className="text-gray-500">Coordinates:</dt>
-                                <dd className="text-gray-300">
-                                  {event.latitude != null && event.longitude != null
-                                    ? `${event.latitude.toFixed(4)}, ${event.longitude.toFixed(4)}`
-                                    : 'Not available'}
-                                </dd>
-                              </div>
-                              <div className="flex gap-2">
-                                <dt className="text-gray-500">Fake Score:</dt>
-                                <dd className="text-gray-300">{(event.fake_confidence * 100).toFixed(1)}%</dd>
-                              </div>
-                              <div className="flex gap-2">
-                                <dt className="text-gray-500">Category Conf:</dt>
-                                <dd className="text-gray-300">{(event.category_confidence * 100).toFixed(1)}%</dd>
-                              </div>
-                              <div className="flex gap-2">
-                                <dt className="text-gray-500">Reported:</dt>
-                                <dd className="text-gray-300">{dayjs(event.reported_at).format('DD MMM YYYY, HH:mm')}</dd>
-                              </div>
-                            </dl>
-                          </div>
-                          <SourceBlock event={event} />
-                        </div>
 
-                        <MediaEvidence event={event} />
+                  {expanded && (
+                    <tr>
+                      <td
+                        colSpan={selectable ? 7 : 6}
+                        className="bg-gray-50 px-6 py-5 dark:bg-gray-900/40"
+                      >
+                        <div className="grid gap-5 lg:grid-cols-2">
+                          <div>
+                            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                              Event Description
+                            </h3>
 
-                        <div className="flex gap-2 flex-wrap mt-4">
-                          {event.source_url && (
-                            <a
-                              href={event.source_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn-secondary text-xs inline-flex items-center gap-1"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <ExternalLink className="w-3 h-3" /> Source post
-                            </a>
-                          )}
-                          {onVerify && event.verification_status === 'pending' && (
-                            <>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); onVerify(event.id, 'verified'); }}
-                                className="btn-primary text-xs inline-flex items-center gap-1"
-                              >
-                                <CheckCircle className="w-3 h-3" /> Verify
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); onVerify(event.id, 'rejected'); }}
-                                className="btn-danger text-xs inline-flex items-center gap-1"
-                              >
-                                <XCircle className="w-3 h-3" /> Reject
-                              </button>
-                            </>
-                          )}
-                          {onViewIntelligence && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); onViewIntelligence(event.id); }}
-                              className="btn-secondary text-xs inline-flex items-center gap-1"
-                              aria-label={`View AI intelligence for: ${event.title}`}
-                            >
-                              <Shield className="w-3 h-3" /> AI Intelligence
-                            </button>
-                          )}
-                          {onClassify && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); onClassify(event); }}
-                              className="btn-secondary text-xs inline-flex items-center gap-1"
-                              aria-label={`Override AI classification for: ${event.title}`}
-                            >
-                              <Shield className="w-3 h-3" /> AI Classify
-                            </button>
-                          )}
-                          {onDelete && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); onDelete(event.id); }}
-                              className="btn-danger text-xs inline-flex items-center gap-1"
-                              aria-label={`Delete weather event: ${event.title}`}
-                            >
-                              <XCircle className="w-3 h-3" /> Delete
-                            </button>
-                          )}
+                            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-gray-600 dark:text-gray-300">
+                              {event.description ||
+                                "No description available."}
+                            </p>
+
+                            <div className="mt-5 space-y-2">
+                              <ConfidenceBadge
+                                value={event.fake_confidence}
+                                label="Fake / Misleading Risk"
+                              />
+
+                              <ConfidenceBadge
+                                value={event.category_confidence}
+                                label="Category Confidence"
+                              />
+                            </div>
+
+                            <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
+                              <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800">
+                                <div className="text-xs text-gray-500">
+                                  Source
+                                </div>
+                                <div className="mt-1 font-medium text-gray-900 dark:text-white">
+                                  {event.source || "Unknown"}
+                                </div>
+                              </div>
+
+                              <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800">
+                                <div className="text-xs text-gray-500">
+                                  Event ID
+                                </div>
+                                <div className="mt-1 font-medium text-gray-900 dark:text-white">
+                                  #{event.id}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <SourceBlock event={event} />
+
+                            <MediaEvidence event={event} />
+
+                            {event.latitude != null &&
+                              event.longitude != null && (
+                                <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+                                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                                    Location Coordinates
+                                  </h4>
+
+                                  <div className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                                    {event.latitude}, {event.longitude}
+                                  </div>
+                                </div>
+                              )}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -406,9 +526,6 @@ export default function EventTable({ events = [], onVerify, onDelete, onViewInte
           </tbody>
         </table>
       </div>
-      {sorted.length === 0 && (
-        <div className="text-center py-12 text-gray-500">No events found</div>
-      )}
     </div>
   );
 }

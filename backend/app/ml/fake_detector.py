@@ -1,25 +1,44 @@
 import re
 import logging
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 from collections import Counter
 
 logger = logging.getLogger(__name__)
 
-FAKE_INDICATOR_KEYWORDS = [
-    "urgent", "share widely", "forward to everyone", "breaking",
-    "just confirmed", "100% true", "government hiding",
-    "share before deleted", "whatsapp forwarded", "unverified",
-    "please retweet", "help needed urgently", "donation",
-    "send money", "click this link", "free money",
-    "congratulations", "you won", "claim now",
-    "miracle cure", "secret method", "hidden truth",
-    "exposed", "conspiracy", "cover up",
-    "act now", "limited time", "don't miss",
-    "forward to 10 people", "share this immediately",
-    "fake", "hoax", "prank", "satire",
+# High-confidence suspicious signals - these strongly indicate misleading content
+HIGH_RISK_PATTERNS = [
+    (r"forward\s+(this\s+)?to\s+\d+\s+people", 0.5, "forwarding_chain"),
+    (r"share\s+(this|it)\s+(before|now|widely|everyone|immediately)", 0.4, "forwarding_chain"),
+    (r"click\s+(here|this\s+link|link)", 0.3, "suspicious_link"),
+    (r"send\s+(money|rs|₹|\$)", 0.6, "financial_scam"),
+    (r"won\s+(a\s+)?(prize|lottery|money|cash)", 0.6, "financial_scam"),
+    (r"claim\s+(free|your)\s+(money|cash|prize)", 0.5, "financial_scam"),
+    (r"miracle\s+(cure|method|solution|way)", 0.5, "miracle_claim"),
+    (r"secret\s+(method|formula|trick|way)", 0.4, "miracle_claim"),
+    (r"hidden\s+truth", 0.3, "conspiracy_claim"),
+    (r"government\s+(hiding|cover.?up|lying|suppressing)", 0.4, "fabricated_authority"),
+    (r"(they|authorities?)\s+(are\s+)?(hiding|covering\s+up|suppressing)\b", 0.6, "fabricated_authority"),
+    (r"they\s+(don't|do not)\s+want\s+you\s+to\s+know", 0.4, "conspiracy_claim"),
+    (r"\d+%\s+(true|real|confirmed|verified|accurate)", 0.4, "fabricated_certainty"),
+    (r"100%\s+(true|real|confirmed|verified|accurate)", 0.5, "fabricated_certainty"),
+    (r"deleted\s+(soon|today|tomorrow|immediately)", 0.4, "urgency_manipulation"),
+    (r"share\s+before\s+(deleted|removed|banned)", 0.4, "urgency_manipulation"),
+    (r"act\s+(now|immediately|fast)\s+or", 0.3, "urgency_manipulation"),
 ]
 
-LEGITIMATE_INDICATOR_KEYWORDS = [
+# Medium-risk suspicious patterns
+MEDIUM_RISK_PATTERNS = [
+    (r"conspiracy", 0.2, "conspiracy_claim"),
+    (r"cover.?up", 0.2, "conspiracy_claim"),
+    (r"exposed", 0.15, "sensational_claim"),
+    (r"act\s+now", 0.15, "urgency_manipulation"),
+    (r"limited\s+time", 0.15, "urgency_manipulation"),
+    (r"don't\s+miss", 0.15, "urgency_manipulation"),
+    (r"urgent.*share", 0.2, "forwarding_chain"),
+]
+
+# Legitimate weather context indicators - these REDUCE risk
+CREDIBLE_WEATHER_INDICATORS = [
     "imd", "india meteorological department", "weather department",
     "national disaster", "ndrf", "sdrf", "disaster management",
     "official", "confirmed", "measured", "recorded",
@@ -30,61 +49,79 @@ LEGITIMATE_INDICATOR_KEYWORDS = [
     "according to data", "weather stations", "radar",
     "satellite imagery", "forecast model",
     "emergency services", "relief operations",
+    "weather station", "observed", "monitored",
+    "meteorological", "hydrological", "seismological",
 ]
 
-SUSPICIOUS_PATTERNS = [
-    (r"share\s+(this|it)\s+(before|now|widely|everyone)", 0.3),
-    (r"forward\s+to\s+\d+\s+people", 0.4),
-    (r"click\s+(here|this\s+link)", 0.2),
-    (r"send\s+(money|rs|₹|\$)", 0.5),
-    (r"won\s+(a\s+)?(prize|lottery|money)", 0.6),
-    (r"miracle", 0.3),
-    (r"conspiracy", 0.2),
-    (r"act\s+now", 0.2),
-    (r"\d+%\s+true", 0.3),
-    (r"urgent.*share", 0.2),
-    (r"deleted\s+(soon|today|tomorrow)", 0.3),
+# Citizen report indicators - these should NOT increase risk
+CITIZEN_REPORT_INDICATORS = [
+    "reported", "observed", "saw", "seen", "noticed",
+    "near my", "in my area", "around here", "local",
+    "my village", "my town", "my city", "our area",
 ]
+
+# Keywords that are NEUTRAL in weather context (often misclassified as suspicious)
+NEUTRAL_IN_WEATHER_CONTEXT = {
+    "urgent", "breaking", "alert", "warning", "emergency",
+    "heavy", "severe", "extreme", "intense", "major",
+    "immediate", "now", "today", "tonight", "currently",
+}
 
 
 class FakeDetector:
     def __init__(self):
         self.confidence_threshold = 0.7
-        self.fake_keyword_weights = self._build_keyword_weights()
-
-    def _build_keyword_weights(self) -> dict:
-        weights = {}
-        for kw in FAKE_INDICATOR_KEYWORDS:
-            weights[kw.lower()] = 0.15
-        for kw in LEGITIMATE_INDICATOR_KEYWORDS:
-            weights[kw.lower()] = -0.12
-        return weights
 
     def predict(self, title: str, description: str) -> Tuple[bool, float]:
         text = f"{title} {description}".lower()
         score = 0.0
         signals = []
 
-        keyword_score, keyword_matches = self._analyze_keywords(text)
-        score += keyword_score
-        signals.extend(keyword_matches)
+        # Analyze high-risk patterns FIRST
+        risk_score, risk_signals = self._analyze_high_risk_patterns(text)
+        score += risk_score
+        signals.extend(risk_signals)
+        has_high_risk = risk_score > 0
 
-        pattern_score, pattern_matches = self._analyze_patterns(text)
-        score += pattern_score
-        signals.extend(pattern_matches)
+        # Analyze medium-risk patterns
+        medium_score, medium_signals = self._analyze_medium_risk_patterns(text)
+        score += medium_score
+        signals.extend(medium_signals)
 
+        # Analyze structure
         structural_score, structural_signals = self._analyze_structure(title, description)
         score += structural_score
         signals.extend(structural_signals)
 
-        source_score, source_signals = self._analyze_source_credibility(description)
-        score += source_score
-        signals.extend(source_signals)
+        # Analyze source credibility ONLY if no high-risk patterns
+        if not has_high_risk:
+            source_score, source_signals = self._analyze_source_credibility(text)
+            score += source_score
+            signals.extend(source_signals)
+        else:
+            # Still check for social media mentions even with high-risk
+            # but skip the credibility boost from official sources
+            social_media_score, social_media_signals = self._analyze_social_media_only(text)
+            score += social_media_score
+            signals.extend(social_media_signals)
 
+        # Analyze sentiment
         sentiment_score, sentiment_signal = self._analyze_sentiment(text)
         score += sentiment_score
         if sentiment_signal:
             signals.append(sentiment_signal)
+
+        # Apply credibility reduction for legitimate weather context
+        # BUT NOT if high-risk patterns were detected (those override credibility)
+        if not has_high_risk:
+            credibility_score, credibility_signals = self._analyze_credibility(text)
+            score += credibility_score
+            signals.extend(credibility_signals)
+
+        # Detect citizen reports - these should not be penalized
+        citizen_score, citizen_signals = self._analyze_citizen_report(text)
+        score += citizen_score
+        signals.extend(citizen_signals)
 
         confidence = self._normalize_score(score)
 
@@ -93,36 +130,23 @@ class FakeDetector:
         logger.debug(f"FakeDetector score: {confidence:.3f}, is_fake: {is_fake}, signals: {signals}")
         return is_fake, confidence
 
-    def _analyze_keywords(self, text: str) -> Tuple[float, List[str]]:
+    def _analyze_high_risk_patterns(self, text: str) -> Tuple[float, List[str]]:
         score = 0.0
-        matches = []
-        words = re.findall(r'\b\w+\b', text)
-
-        for word in words:
-            if word in self.fake_keyword_weights:
-                w = self.fake_keyword_weights[word]
-                score += w
-                if abs(w) > 0.1:
-                    matches.append(f"keyword:{word}")
-
-        bigrams = []
-        tokens = text.split()
-        for i in range(len(tokens) - 1):
-            bigram = f"{tokens[i]} {tokens[i+1]}"
-            if bigram in self.fake_keyword_weights:
-                score += self.fake_keyword_weights[bigram]
-                matches.append(f"bigram:{bigram}")
-
-        return score, matches
-
-    def _analyze_patterns(self, text: str) -> Tuple[float, List[str]]:
-        score = 0.0
-        matches = []
-        for pattern, weight in SUSPICIOUS_PATTERNS:
+        signals = []
+        for pattern, weight, signal_type in HIGH_RISK_PATTERNS:
             if re.search(pattern, text, re.IGNORECASE):
                 score += weight
-                matches.append(f"pattern:{pattern[:30]}")
-        return score, matches
+                signals.append(f"pattern:{signal_type}")
+        return score, signals
+
+    def _analyze_medium_risk_patterns(self, text: str) -> Tuple[float, List[str]]:
+        score = 0.0
+        signals = []
+        for pattern, weight, signal_type in MEDIUM_RISK_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                score += weight
+                signals.append(f"pattern:{signal_type}")
+        return score, signals
 
     def _analyze_structure(self, title: str, description: str) -> Tuple[float, List[str]]:
         score = 0.0
@@ -131,7 +155,7 @@ class FakeDetector:
         if len(title) > 150:
             score += 0.1
             signals.append("long_title")
-        if title.isupper():
+        if title.isupper() and len(title) > 20:
             score += 0.15
             signals.append("all_caps_title")
 
@@ -157,22 +181,34 @@ class FakeDetector:
 
         return score, signals
 
-    def _analyze_source_credibility(self, description: str) -> Tuple[float, List[str]]:
+    def _analyze_source_credibility(self, text: str) -> Tuple[float, List[str]]:
         score = 0.0
         signals = []
-        text = description.lower()
 
-        credible_sources = [
-            "imd", "india meteorological", "ndrf", "sdrf",
-            "disaster management authority", "met department",
-            "weather department", "national disaster",
-            "ndma", "state disaster",
-        ]
-        for source in credible_sources:
+        # Check for credible weather sources
+        for source in CREDIBLE_WEATHER_INDICATORS:
             if source in text:
-                score -= 0.2
-                signals.append(f"credible_source:{source}")
+                score -= 0.15
+                signals.append(f"credible_weather_reference:{source}")
                 break
+
+        # Social media mentions slightly increase risk
+        social_media_mentions = [
+            "whatsapp", "facebook", "telegram", "instagram",
+            "twitter", "forwarded", "shared",
+        ]
+        for mention in social_media_mentions:
+            if mention in text:
+                score += 0.05
+                signals.append(f"social_media_mention:{mention}")
+                break
+
+        return score, signals
+
+    def _analyze_social_media_only(self, text: str) -> Tuple[float, List[str]]:
+        """Only check social media mentions, skip credibility boost."""
+        score = 0.0
+        signals = []
 
         social_media_mentions = [
             "whatsapp", "facebook", "telegram", "instagram",
@@ -180,8 +216,8 @@ class FakeDetector:
         ]
         for mention in social_media_mentions:
             if mention in text:
-                score += 0.1
-                signals.append(f"social_media:{mention}")
+                score += 0.05
+                signals.append(f"social_media_mention:{mention}")
                 break
 
         return score, signals
@@ -210,6 +246,41 @@ class FakeDetector:
             signal = signal or f"high_urgency_sentiment:{urgency_count}"
 
         return score, signal
+
+    def _analyze_credibility(self, text: str) -> Tuple[float, List[str]]:
+        """Reduce risk for legitimate weather reporting language."""
+        score = 0.0
+        signals = []
+
+        credible_count = 0
+        for indicator in CREDIBLE_WEATHER_INDICATORS:
+            if indicator in text:
+                credible_count += 1
+
+        if credible_count >= 3:
+            score -= 0.3
+            signals.append("strong_credible_weather_context")
+        elif credible_count >= 1:
+            score -= 0.15
+            signals.append("credible_weather_context")
+
+        return score, signals
+
+    def _analyze_citizen_report(self, text: str) -> Tuple[float, List[str]]:
+        """Citizen reports should not be penalized for observational language."""
+        score = 0.0
+        signals = []
+
+        citizen_count = 0
+        for indicator in CITIZEN_REPORT_INDICATORS:
+            if indicator in text:
+                citizen_count += 1
+
+        if citizen_count >= 2:
+            score -= 0.1
+            signals.append("citizen_observation_language")
+
+        return score, signals
 
     def _normalize_score(self, raw_score: float) -> float:
         import math
