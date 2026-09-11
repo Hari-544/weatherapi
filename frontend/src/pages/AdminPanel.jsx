@@ -79,9 +79,37 @@ export default function AdminPanel() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const filteredEvents = useMemo(() => {
-    if (statusFilter === 'all') return events;
-    return events.filter(e => e.verification_status === statusFilter);
-  }, [events, statusFilter]);
+    let result = events;
+
+    // First filter by active tab
+    if (activeTab === 'verification') {
+      // Verification Queue: events needing human review (pending + needs_review)
+      result = result.filter(e =>
+        e.verification_status === 'pending' || e.verification_status === 'needs_review'
+      );
+    } else if (activeTab === 'suspicious') {
+      // Suspicious: events flagged by FakeDetector (is_fake = true)
+      result = result.filter(e => e.is_fake === true);
+    } else if (activeTab === 'verified') {
+      // Verified: events with verification_status === 'verified'
+      result = result.filter(e => e.verification_status === 'verified');
+    }
+    // 'events' (All Events) shows all events
+
+    // Then apply status filter within the tab
+    if (statusFilter !== 'all') {
+      result = result.filter(e => e.verification_status === statusFilter);
+    }
+
+    return result;
+  }, [events, activeTab, statusFilter]);
+
+  const counts = useMemo(() => ({
+    all: events.length,
+    verification: events.filter(e => e.verification_status === 'pending' || e.verification_status === 'needs_review').length,
+    suspicious: events.filter(e => e.is_fake === true).length,
+    verified: events.filter(e => e.verification_status === 'verified').length,
+  }), [events]);
 
   const statusCounts = useMemo(() => ({
     all: events.length,
@@ -128,7 +156,7 @@ export default function AdminPanel() {
   };
 
   const bulkVerify = async (status) => {
-    const targets = events.filter(e => selectedIds.has(e.id) && e.verification_status === 'pending');
+    const targets = filteredEvents.filter(e => selectedIds.has(e.id) && e.verification_status === 'pending');
     if (targets.length === 0) return;
     if (!confirm(`Verify ${targets.length} selected event(s) as ${status}?`)) return;
 
@@ -144,7 +172,7 @@ export default function AdminPanel() {
   };
 
   const bulkDelete = async () => {
-    const targets = events.filter(e => selectedIds.has(e.id));
+    const targets = filteredEvents.filter(e => selectedIds.has(e.id));
     if (targets.length === 0) return;
     if (!confirm(`Permanently delete ${targets.length} selected event(s)?`)) return;
 
@@ -201,9 +229,10 @@ export default function AdminPanel() {
   };
 
   const tabs = [
-    { id: 'events', label: 'All Events', icon: Database, count: statusCounts.all },
-    { id: 'verification', label: 'Verification Queue', icon: Shield, count: statusCounts.pending },
-    { id: 'fake', label: 'Suspicious', icon: AlertTriangle, count: events.filter(e => e.is_fake || e.fake_confidence > 0.5).length },
+    { id: 'events', label: 'All Events', icon: Database, count: counts.all },
+    { id: 'verification', label: 'Verification Queue', icon: Shield, count: counts.verification },
+    { id: 'suspicious', label: 'Suspicious', icon: AlertTriangle, count: counts.suspicious },
+    { id: 'verified', label: 'Verified', icon: CheckCircle, count: counts.verified },
   ];
 
   return (
@@ -387,9 +416,9 @@ export default function AdminPanel() {
         </div>
       )}
 
-      {(activeTab === 'events' || activeTab === 'verification' || activeTab === 'fake') && (
+      {(activeTab === 'events' || activeTab === 'verification' || activeTab === 'suspicious' || activeTab === 'verified') && (
         <EventTable
-          events={activeTab === 'verification' ? filteredEvents.filter(e => e.verification_status === 'pending') : activeTab === 'fake' ? filteredEvents.filter(e => e.is_fake || e.fake_confidence > 0.5) : filteredEvents}
+          events={filteredEvents}
           onVerify={handleVerify}
           onDelete={handleDelete}
           onClassify={openOverride}
@@ -401,10 +430,24 @@ export default function AdminPanel() {
         />
       )}
 
-      {activeTab === 'verification' && filteredEvents.filter(e => e.verification_status === 'pending').length === 0 && (
+      {activeTab === 'verification' && filteredEvents.length === 0 && (
         <div className="card text-center py-12">
           <CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-3" />
           <p className="text-gray-400">All events have been reviewed!</p>
+        </div>
+      )}
+
+      {activeTab === 'suspicious' && filteredEvents.length === 0 && (
+        <div className="card text-center py-12">
+          <AlertTriangle className="w-12 h-12 text-yellow-400 mx-auto mb-3" />
+          <p className="text-gray-400">No suspicious events detected.</p>
+        </div>
+      )}
+
+      {activeTab === 'verified' && filteredEvents.length === 0 && (
+        <div className="card text-center py-12">
+          <CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-3" />
+          <p className="text-gray-400">No verified events yet.</p>
         </div>
       )}
 
